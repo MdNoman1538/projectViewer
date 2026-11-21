@@ -208,7 +208,7 @@ class Resolver:
         return self.resolve_chain(dotted.split("."), ctx, 0)
 
     def resolve_chain(self, chain: list[str], ctx: Ctx, depth: int):
-        """A callee chain such as ['engine', 'evaluate_point'] -> result."""
+        """A callee chain such as ['cart', 'total'] -> result."""
         if depth > _MAX_DEPTH or not chain:
             return None
         r = self.scope(chain[0], ctx, depth)
