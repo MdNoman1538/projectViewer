@@ -20,7 +20,7 @@
   - API→service through a module-level instance `inferred`
   - table reads/writes `pattern`
   - test→code through a pytest fixture `inferred`
-- **On projectViewer itself:** 106 calls linked, 112 unresolved (49%), 84 to libraries, 138 builtin. The low ratio comes from dict-heavy code (`facts["x"]`), whose values carry no type. See the devlog.
+- **On projectViewer itself:** 106 calls linked, 112 unresolved (49%), 84 to libraries, 138 builtin. Main real cause: calls to **nested functions** (not yet registered). Most of the rest are builtin methods on untyped values. Only 39 unresolved calls share a name with a project function. See the devlog.
 
 ## Performance
 
@@ -51,5 +51,5 @@ Apple M3 (8 cores), Python 3.12, best of N runs.
 | 3 | The warm path re-reads every cache entry (~0.9 s on pandas) | Phase 4: in-memory facts; skip unchanged files by mtime + size (like git's index) |
 | 4 | SQL is detected only in UPPERCASE keywords. SQL inside test fixtures and registered DataFrames show up as tables. | Accepted; certainty is `pattern` |
 | 5 | Imports inside functions are treated as module-wide | Accepted approximation |
-| 6 | Unresolved calls are counted, not drawn; dict-heavy code links poorly | By design (ADR-0002). Consider typed facts (dataclasses) for our own code. |
+| 6 | Nested functions are not registered (~28 missed calls in our own code); literal-typed values (`x = {}`) count as unresolved; the headline \"% linked\" metric overstates misses | Next PR (test-first) |
 | 7 | Parallel parsing fails when called from stdin/REPL on macOS ("spawn") | Handled: automatic fallback to serial |

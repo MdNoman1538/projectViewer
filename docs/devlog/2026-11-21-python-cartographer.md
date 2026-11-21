@@ -37,9 +37,27 @@ The fix tracks when a value comes from a library or builtin type (`lib.connect()
 - **A real bug found while benchmarking:** running from piped input crashed the worker processes. On macOS, workers are started fresh ("spawn") and must re-import `__main__`, which doesn't exist for stdin, REPLs or notebooks. The library now falls back to serial instead of crashing.
 - A warm cache gives 1.6 s and one edited file 1.65 s. What remains (re-reading cache entries + linking) is best solved by the Phase 4 service keeping facts in memory, so we recorded it rather than optimising early.
 
-## Mapping ourselves
+## Mapping ourselves, and explaining before measuring (again)
 
-projectViewer maps its own code in 45 ms (cold) / 18 ms (warm), but links only 49% of its own project calls. The reason is instructive: the analyser passes plain `dict`s around (`facts["imports"].append(...)`), and a dictionary's values have no type to follow. **Dict-heavy code limits static linking**; typed objects (dataclasses, TypedDicts) would help both readers and tools.
+projectViewer maps its own code in 45 ms (cold) / 18 ms (warm), but reports only 49% of its own project calls linked (106 linked, 112 unresolved).
+
+**First explanation (wrong, given before measuring):** "dict-heavy code: `facts["x"]` values carry no type to follow."
+
+**Measured** (grouping the 112 by method name):
+- **19** resolved to an object rather than a function, e.g. calling a value a fixture returned.
+- **~28** are calls to **functions defined inside another function**: `node()` and `edge()` are defined inside `build_world`. The analyser doesn't register nested definitions. **That is an analyser gap, and the main real loss.**
+- **~45** are list/str/dict methods (`out.append`, `name.strip`, `self.alias.get`) on values whose type we don't track, e.g. `x = {}`. They are builtin calls, never project links.
+- **~10** are test helpers returned by fixtures.
+- Only **39** of the unresolved calls even share a name with a project function, so the "49%" understates linking.
+
+Dict values *do* lose type information (`cfacts["attr_types"].get(...)`), but that was a minor cause.
+
+*Lesson, the second time today:* look inside a metric before explaining it.
+
+**Follow-up PR:**
+- register nested functions in their enclosing scope
+- type literal assignments (`{}`, `[]`, `""`) as builtin
+- report "unresolved calls whose name matches a project function" as the headline health number
 
 ## Smaller decisions
 
