@@ -13,6 +13,7 @@ A change set compares two worlds: a commit with its parent, or the live working 
 
 from __future__ import annotations
 
+import difflib
 import re
 from collections import defaultdict, deque
 from pathlib import Path
@@ -154,7 +155,7 @@ def diff_worlds(
         if (
             how == "modified"
             and an[nid]["kind"] in ("class", "file")
-            and any(k in changed for k in kids[nid])
+            and any(changed.get(k) in ("new", "modified", "contains") for k in kids[nid])
         ):
             changed[nid] = "contains"
     moved_from = set(moved.values())
@@ -192,11 +193,57 @@ def diff_worlds(
         "removed": removed,
         "upstream": reach(rev),
         "downstream": reach(fwd),
-        "files": sorted(ranges),
+        "files": sorted(set(ranges) | set(moved_files)),
     }
 
 
 # ---------------------------------------------------------------- change sets for refs
+
+
+MOVE_SIMILARITY = 0.6  # like git's default rename threshold (50%), a little stricter
+
+
+def _untracked(root: Path) -> list[str]:
+    out = _git(root, "ls-files", "--others", "--exclude-standard", "-z", "--", "*.py") or ""
+    return [p for p in out.split("\0") if p]
+
+
+def _blob(root: Path, rev: str, path: str) -> str:
+    return _git(root, "show", f"{rev}:{path}") or ""
+
+
+def _unified(old: str, new: str, old_path: str, new_path: str, context: int = 0) -> str:
+    lines = difflib.unified_diff(
+        old.splitlines(), new.splitlines(), f"a/{old_path}", f"b/{new_path}", n=context, lineterm=""
+    )
+    return "\n".join(lines) + "\n"
+
+
+def plain_moves(root: Path, base: str, untracked: list[str]) -> dict[str, str]:
+    """{new path: old path} for files moved WITHOUT git (plain `mv`, an editor rename): a tracked file
+    that disappeared and an untracked file with similar content. git cannot see these yet."""
+    deleted = [p for p in (_git(root, "ls-files", "--deleted", "-z", "--", "*.py") or "").split("\0") if p]
+    if not deleted or not untracked:
+        return {}
+    olds = {d: _blob(root, base, d).splitlines() for d in deleted}
+    pairs = []
+    for u in untracked:
+        new = (root / u).read_text(errors="replace").splitlines()
+        for d, old in olds.items():
+            ratio = 1.0 if old == new else difflib.SequenceMatcher(None, old, new).ratio()
+            if ratio >= MOVE_SIMILARITY:
+                pairs.append((ratio, u, d))
+    moved, used = {}, set()
+    for _, u, d in sorted(pairs, reverse=True):  # best matches first, each file used once
+        if u not in moved and d not in used:
+            moved[u] = d
+            used.add(d)
+    return moved
+
+
+def working_moves(root: Path, base: str) -> dict[str, str]:
+    """All moves in the working copy: git-tracked (`git mv`, staged) and plain ones."""
+    return {**renames(root, base), **plain_moves(root, base, _untracked(root))}
 
 
 def _message(root: Path, sha: str) -> str:
@@ -212,10 +259,14 @@ def change_set(root: Path, ref: str, cache: Cache | None = None, after: dict | N
         before = map_revision(root, base, cache) if base else {"nodes": [], "edges": []}
         after = after or map_repo(root, cache)
         diff = _git(root, "diff", "-U0", "-M", base or EMPTY_TREE, "--", "*.py") or ""
-        untracked = (_git(root, "ls-files", "--others", "--exclude-standard", "--", "*.py") or "").split()
-        for path in untracked:  # new files: every line is new
-            diff += f"\n+++ b/{path}\n@@ -0,0 +1,{max(1, (root / path).read_text(errors='replace').count(chr(10)))} @@\n"
-        cs = diff_worlds(before, after, diff, moved_files=renames(root, base) if base else {})
+        moves = working_moves(root, base) if base else {}
+        for path in _untracked(root):
+            text = (root / path).read_text(errors="replace")
+            if path in moves:  # moved without git: only the real edits count as changed lines
+                diff += "\n" + _unified(_blob(root, base, moves[path]), text, moves[path], path)
+            else:  # a new file: every line is new
+                diff += f"\n+++ b/{path}\n@@ -0,0 +1,{max(1, text.count(chr(10)))} @@\n"
+        cs = diff_worlds(before, after, diff, moved_files=moves)
         cs.update(ref="working", sha=None, subject="Uncommitted changes", message="", refs=[], notes=[])
         return cs
 
@@ -269,13 +320,27 @@ def commit_list(root: Path, limit: int = 40) -> list[dict]:
 
 
 def file_diff(root: Path, ref: str, path: str) -> str:
-    """Unified diff of one file for a change set (the "how")."""
+    """Unified diff of one file for a change set (the "how"). For a moved file it compares with the
+    old path, so it shows only the real edits, not the whole file as new."""
     root = Path(root).resolve()
     if ref == "working":
-        tracked = _git(root, "ls-files", "--error-unmatch", "--", path)
-        if tracked is None:  # untracked: show the whole file as added
+        head = (_git(root, "rev-parse", "--verify", "-q", "HEAD") or "").strip()
+        moves = working_moves(root, head) if head else {}
+        tracked = _git(root, "ls-files", "--error-unmatch", "--", path) is not None
+        if path in moves and not tracked:  # plain `mv`: git has no rename to show, so diff ourselves
+            return _unified(
+                _blob(root, head, moves[path]),
+                (root / path).read_text(errors="replace"),
+                moves[path],
+                path,
+                3,
+            )
+        if not tracked:  # a new untracked file: all of it is added
             text = (root / path).read_text(errors="replace")
             return "".join(f"+{line}\n" for line in text.splitlines())
-        return _git(root, "diff", "HEAD", "--", path) or ""
+        paths = [moves[path], path] if path in moves else [path]
+        return _git(root, "diff", "-M", head or EMPTY_TREE, "--", *paths) or ""
     parent = (_git(root, "rev-parse", "--verify", "-q", f"{ref}^") or "").strip()
-    return _git(root, "diff", "-M", parent or EMPTY_TREE, ref, "--", path) or ""
+    moves = renames(root, parent, ref) if parent else {}
+    paths = [moves[path], path] if path in moves else [path]
+    return _git(root, "diff", "-M", parent or EMPTY_TREE, ref, "--", *paths) or ""

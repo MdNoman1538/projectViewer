@@ -27,7 +27,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from projectviewer.analyzers.python import map_repo
-from projectviewer.analyzers.python.mapper import discover
+from projectviewer.analyzers.python.mapper import _git, discover
 from projectviewer.cache import Cache
 from projectviewer.changes import change_set, commit_list, file_diff
 from projectviewer.registry import unique_id
@@ -93,6 +93,11 @@ class Project:
 
     def changes(self, ref: str) -> dict:
         version, _, _ = self.current()
+        if ref != "working":  # HEAD / HEAD~n move with every commit: cache by the commit they name now
+            sha = (_git(self.root, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}") or "").strip()
+            if not sha:
+                raise ValueError(f"unknown revision: {ref}")
+            ref = sha
         key = (ref, version if ref == "working" else "")  # commits never change; the working copy does
         with self._lock:
             hit = self._changes.get(key)

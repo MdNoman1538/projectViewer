@@ -134,3 +134,86 @@ def test_moved_files_are_moved_not_removed_and_new(repo):
     assert cs["changed"]["file:shop/cart.py"] in ("modified", "contains")
     # a move alone changes no behaviour: it is not a source of impact
     assert "py:shop.api.checkout" not in cs["upstream"]
+
+
+# ---------------------------------------------------------------- review findings (code review, 2026-11-21)
+
+
+def _move_tax(repo, edit=""):
+    (repo / "shop/pricing").mkdir()
+    subprocess.run(
+        ["git", "-C", str(repo), "mv", "shop/tax.py", "shop/pricing/tax.py"], check=True, capture_output=True
+    )
+    (repo / "shop/pricing/__init__.py").write_text("")
+    if edit:
+        p = repo / "shop/pricing/tax.py"
+        p.write_text(p.read_text() + edit)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "refactor: move tax")
+    return git(repo, "rev-parse", "HEAD")
+
+
+def test_diff_of_a_moved_file_shows_only_the_real_edits(repo):
+    from projectviewer.changes import file_diff
+
+    sha = _move_tax(repo, edit="\n# moved and edited\n")
+    patch = file_diff(repo, sha, "shop/pricing/tax.py")
+    assert "new file mode" not in patch
+    assert "+# moved and edited" in patch
+    assert "+def rate():" not in patch
+
+
+def test_pure_move_is_listed_in_the_change_files(repo):
+    sha = _move_tax(repo)
+    assert "shop/pricing/tax.py" in change_set(repo, sha)["files"]
+
+
+def test_edited_class_in_a_moved_file_still_seeds_impact(repo):
+    write(repo, "shop/rates.py", "class Rate:\n    vat = 1\n\n    def get(self):\n        return self.vat\n")
+    write(repo, "shop/use.py", "from shop.rates import Rate\n\ndef make():\n    return Rate()\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "feat: rates")
+    (repo / "shop/pricing").mkdir()
+    subprocess.run(
+        ["git", "-C", str(repo), "mv", "shop/rates.py", "shop/pricing/rates.py"],
+        check=True,
+        capture_output=True,
+    )
+    (repo / "shop/pricing/__init__.py").write_text("")
+    write(
+        repo,
+        "shop/pricing/rates.py",
+        "class Rate:\n    vat = 2\n\n    def get(self):\n        return self.vat\n",
+    )
+    write(repo, "shop/use.py", "from shop.pricing.rates import Rate\n\ndef make():\n    return Rate()\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "refactor: move rates, change vat")
+    cs = change_set(repo, git(repo, "rev-parse", "HEAD"))
+    assert cs["changed"]["py:shop.pricing.rates.Rate"] == "modified"
+    assert cs["changed"]["py:shop.pricing.rates.Rate.get"] == "moved"
+    assert "py:shop.use.make" in cs["upstream"]
+
+
+def test_working_copy_detects_a_plain_mv_without_git(repo):
+    (repo / "shop/pricing").mkdir()
+    (repo / "shop/tax.py").rename(repo / "shop/pricing/tax.py")
+    cs = change_set(repo, "working")
+    assert cs["changed"]["py:shop.pricing.tax.rate"] == "moved"
+    assert "py:shop.tax.rate" not in cs["removed"]
+
+
+def test_untracked_file_with_a_space_in_its_name(repo):
+    write(repo, "shop/my tool.py", "def run():\n    pass\n")
+    cs = change_set(repo, "working")
+    assert cs["changed"]["file:shop/my tool.py"] == "new"
+
+
+def test_head_change_set_follows_new_commits(repo):
+    from projectviewer.server import Project
+
+    p = Project("shop", repo, None)
+    first = p.changes("HEAD")["sha"]
+    write(repo, "shop/more.py", "def more():\n    pass\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "feat: more")
+    assert p.changes("HEAD")["sha"] != first
