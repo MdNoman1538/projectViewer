@@ -7,6 +7,8 @@
 - GET /api/p/<id>/commits                   -> recent commits (subject, notes count, issue refs)
 - GET /api/p/<id>/changes?ref=working|<sha> -> changed / affected / notes (see changes.py)
 - GET /api/p/<id>/diff?ref=…&file=<path>    -> {"diff"} unified diff of one file in that change set
+- GET /api/p/<id>/events?since=<ms>         -> recent AI activity (from the Claude Code hook)
+- POST /api/events                          <- `projectviewer hook` (needs header X-ProjectViewer: 1)
 - everything else                           -> the built viewer (viewer/dist), single-page-app fallback
 
 Binds to 127.0.0.1 only: nothing is reachable from other machines. The browser polls; the Phase 4
@@ -21,6 +23,8 @@ import json
 import mimetypes
 import re
 import threading
+import time
+from collections import deque
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -34,6 +38,8 @@ from projectviewer.registry import unique_id
 
 DEFAULT_WEB_DIR = Path(__file__).resolve().parents[2] / "viewer" / "dist"
 MAX_SOURCE_BYTES = 2_000_000
+MAX_EVENT_BYTES = 16_384
+EVENTS_KEPT = 200
 REF = re.compile(r"^(working|[0-9a-fA-F]{4,40}|HEAD(~\d{1,4})?)$")  # never pass anything else to git
 NOT_BUILT = (
     "<!doctype html><meta charset=utf-8><title>projectViewer</title>"
@@ -59,6 +65,8 @@ class Project:
         self._gz = b""
         self._files: frozenset[str] = frozenset()
         self._changes: dict[tuple[str, str], dict] = {}
+        self.events: deque[dict] = deque(maxlen=EVENTS_KEPT)  # recent AI activity (memory only)
+        self.last_activity = 0
 
     def fingerprint(self) -> tuple[str, int]:
         """(version, last change in ms): cheap, from paths + mtimes + sizes of the Python files."""
@@ -124,6 +132,27 @@ def make_server(
         projects[pid] = Project(pid, root, cache)
     web = Path(web_dir or DEFAULT_WEB_DIR).resolve()
 
+    def record_event(ev: dict) -> bool:
+        """Attach an event to the project it happened in (by file, else working directory)."""
+        where = ev.get("file") or ev.get("cwd") or ""
+        try:
+            where_path = Path(str(where)).resolve()
+        except (OSError, ValueError):
+            return False
+        for p in projects.values():
+            if where_path == p.root or where_path.is_relative_to(p.root):
+                now = int(time.time() * 1000)
+                clean = {
+                    k: str(v)[:500] for k, v in ev.items() if k in ("event", "session", "tool", "prompt")
+                }
+                clean["at"] = now
+                if ev.get("file"):
+                    clean["file"] = where_path.relative_to(p.root).as_posix()
+                p.events.append(clean)
+                p.last_activity = now
+                return True
+        return False
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "projectViewer"
 
@@ -166,12 +195,37 @@ def make_server(
 
         do_HEAD = do_GET
 
+        def do_POST(self):  # noqa: N802 - http.server naming
+            if urlparse(self.path).path != "/api/events":
+                return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            # A custom header cannot be sent by a plain cross-site form: web pages can't inject events.
+            if self.headers.get("X-ProjectViewer") != "1":
+                return self._json({"error": "missing X-ProjectViewer header"}, HTTPStatus.FORBIDDEN)
+            size = int(self.headers.get("Content-Length") or 0)
+            if size > MAX_EVENT_BYTES:
+                return self._json({"error": "event too large"}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+            try:
+                ev = json.loads(self.rfile.read(size) or b"{}")
+            except json.JSONDecodeError:
+                return self._json({"error": "bad json"}, HTTPStatus.BAD_REQUEST)
+            if not isinstance(ev, dict):
+                return self._json({"error": "bad event"}, HTTPStatus.BAD_REQUEST)
+            accepted = record_event(ev)
+            return self._json({"accepted": accepted}, HTTPStatus.ACCEPTED)
+
         def _projects(self):
             out = []
             for p in projects.values():
                 version, last = p.fingerprint()
                 out.append(
-                    {"id": p.id, "name": p.name, "path": str(p.root), "version": version, "last_change": last}
+                    {
+                        "id": p.id,
+                        "name": p.name,
+                        "path": str(p.root),
+                        "version": version,
+                        "last_change": last,
+                        "last_activity": p.last_activity,
+                    }
                 )
             self._json(out)
 
@@ -182,6 +236,9 @@ def make_server(
                 return self._world(p)
             if what == "source":
                 return self._source(p, q.get("file", ""))
+            if what == "events":
+                since = int(q.get("since", "0") or 0) if q.get("since", "0").isdigit() else 0
+                return self._json([e for e in list(p.events) if e["at"] > since])
             if what == "commits":
                 return self._json(commit_list(p.root))
             if what in ("changes", "diff"):

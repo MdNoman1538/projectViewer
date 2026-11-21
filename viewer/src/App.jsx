@@ -1,6 +1,6 @@
 import { LinearInterpolator } from "@deck.gl/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChangesDrawer, changedCode, TourBar, tourSteps } from "./Changes.jsx";
+import { ActivityFeed, ChangesDrawer, changedCode, TourBar, tourSteps } from "./Changes.jsx";
 import { layoutLevel } from "./layout.js";
 import MapView from "./MapView.jsx";
 import { indexWorld } from "./model.js";
@@ -147,13 +147,14 @@ export default function App() {
   useEffect(() => {
     const prev = lastSeen.current;
     if (follow && project) {
-      const moved = projects.filter((p) => prev[p.id] !== undefined && p.last_change > prev[p.id] && p.id !== project.id);
+      const latest = (p) => Math.max(p.last_change || 0, p.last_activity || 0);
+      const moved = projects.filter((p) => prev[p.id] !== undefined && latest(p) > prev[p.id] && p.id !== project.id);
       if (moved.length) {
-        const newest = moved.reduce((a, b) => (a.last_change > b.last_change ? a : b));
-        if (newest.last_change > project.last_change) switchTo(newest.id);
+        const newest = moved.reduce((a, b) => (latest(a) > latest(b) ? a : b));
+        if (latest(newest) > latest(project)) switchTo(newest.id);
       }
     }
-    lastSeen.current = Object.fromEntries(projects.map((p) => [p.id, p.last_change]));
+    lastSeen.current = Object.fromEntries(projects.map((p) => [p.id, Math.max(p.last_change || 0, p.last_activity || 0)]));
   }, [projects, follow, project, switchTo]);
 
   const api = project ? `api/p/${encodeURIComponent(project.id)}` : null;
@@ -163,6 +164,25 @@ export default function App() {
   const commits = useFetched(api && drawer ? `${api}/commits` : null, version);
   const picked = useFetched(api && changeRef && changeRef !== "working" ? `${api}/changes?ref=${changeRef}` : null, changeRef);
   const cs = changeRef === "working" ? live : changeRef ? picked : null;
+
+  // ---------------------------------------------------------------- AI activity (Claude Code hook)
+  const [events, setEvents] = useState([]);
+  const lastEvent = useRef(0);
+  useEffect(() => {
+    setEvents([]);
+    lastEvent.current = 0;
+  }, [api]);
+  const activity = project?.last_activity || 0;
+  useEffect(() => {
+    if (!api || !activity || activity <= lastEvent.current) return;
+    getJSON(`${api}/events?since=${lastEvent.current}`)
+      .then((fresh) => {
+        if (!fresh.length) return;
+        lastEvent.current = Math.max(...fresh.map((e) => e.at));
+        setEvents((old) => [...fresh.reverse(), ...old].slice(0, 50));
+      })
+      .catch(() => {});
+  }, [api, activity]);
 
   // ---------------------------------------------------------------- the map of the current level
   const repoName = world?.repo?.split("/").filter(Boolean).at(-1) || project?.name || "project";
@@ -248,6 +268,19 @@ export default function App() {
     [selId, open],
   );
 
+  // Follow the AI: when it edits a file in this project, show that file with the live changes.
+  const followed = useRef(0);
+  useEffect(() => {
+    const e = events[0];
+    if (!follow || !e || e.at <= followed.current || !e.file || !tree) return;
+    followed.current = e.at;
+    const id = `file:${e.file}`;
+    if (tree.T.has(id)) {
+      go(id);
+      setChangeRef("working");
+    }
+  }, [events, follow, tree, go]);
+
   // ---------------------------------------------------------------- the Show tour
   const showStep = useCallback(
     (i) => {
@@ -316,9 +349,9 @@ export default function App() {
         ) : (
           <span className="repo">{project?.name}</span>
         )}
-        {projects.length > 1 && (
-          <label className="follow" title="Show whichever project is changing right now">
-            <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> follow activity
+        {projects.length > 0 && (
+          <label className="follow" title="Follow the work: switch to the project that is changing, and fly to the file the AI is editing">
+            <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> follow
           </label>
         )}
         <div className="lenses" role="tablist">
@@ -410,6 +443,7 @@ export default function App() {
               </button>
             )}
           </nav>
+          <ActivityFeed events={events} onFile={(f) => go(`file:${f}`)} />
           {drawer && <ChangesDrawer live={live} commits={commits} active={changeRef} onPick={pickChange} onClose={() => setDrawer(false)} />}
           {cs && tour !== null && steps.length > 0 && (
             <TourBar

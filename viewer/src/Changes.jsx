@@ -276,3 +276,37 @@ export function TourBar({ steps, index, ix, cs, playing, onStep, onPlay, onClose
     </div>
   );
 }
+
+const ago = (ms) => {
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`;
+};
+
+// What the AI is doing, newest first (from the Claude Code hook).
+export function ActivityFeed({ events, onFile }) {
+  if (!events.length) return null;
+  return (
+    <div className="activity">
+      <div className="activity-head">AI activity</div>
+      {events.slice(0, 6).map((e, i) => (
+        <div key={`${e.at}-${i}`} className={`activity-row ${i === 0 && Date.now() - e.at < 4000 ? "fresh" : ""}`}>
+          {e.event === "UserPromptSubmit" ? (
+            <span>💬 {e.prompt ? `“${e.prompt.slice(0, 90)}${e.prompt.length > 90 ? "…" : ""}”` : "new prompt"}</span>
+          ) : e.event === "Stop" ? (
+            <span>✓ finished a turn</span>
+          ) : (
+            <span>
+              ✎ {e.tool || "edit"}{" "}
+              {e.file ? (
+                <button type="button" className="linkish" onClick={() => onFile(e.file)}>
+                  {e.file}
+                </button>
+              ) : null}
+            </span>
+          )}
+          <small>{ago(e.at)}</small>
+        </div>
+      ))}
+    </div>
+  );
+}
