@@ -1,6 +1,6 @@
 # Project Status
 
-**As of:** 2026-11-21 · **Phase:** 2 (viewer) working, on branch `feat/viewer`. Next: analyser fixes (nested functions, test→endpoint HTTP links), then Phase 3 (history: changed/affected per commit).
+**As of:** 2026-11-21 · **Phase:** 3 (changes) mostly done; 4 (service) partly. Branch `feat/analyzer-fixes`, stacked on #1 and #2.
 
 ## What exists
 
@@ -10,7 +10,9 @@
 | Pass 2: linking | `src/projectviewer/analyzers/python/resolve.py` | Resolves imports (incl. re-exports via `__init__.py`, src-layout names), `self`, inheritance, type inference (constructors, annotations, return types, module globals, pytest fixtures). Classifies every call as linked / external / builtin / unresolved. |
 | Cache | `src/projectviewer/cache.py` | Content-addressed per-file cache in `~/.cache/projectviewer`, written atomically |
 | Mapper | `src/projectviewer/analyzers/python/mapper.py` | File discovery (git-aware), parallel parsing for ≥64 cache misses with serial fallback, world assembly |
-| CLI | `src/projectviewer/cli.py` | `projectviewer map <repo> [-o out.world.json] [--no-cache]` |
+| CLI | `src/projectviewer/cli.py` | `map`, `serve`, `add`, `remove`, `list` |
+| Change sets | `src/projectviewer/changes.py` | Commit vs parent, or working copy vs HEAD: changed / new / moved (git -M, plus plain `mv` by content similarity) / removed, upstream and downstream impact (4 steps), change notes from commit messages, per-file diffs |
+| Projects | `src/projectviewer/registry.py` | Subscribed projects in `~/.config/projectviewer/projects.json` |
 | Tests | `tests/` | 34 Python tests (cartographer + server) on small made-up fixture projects |
 | Server | `src/projectviewer/server.py` | `projectviewer serve <repo>`: world API (gzip, ETag), live version fingerprint, source access limited to the repo's analysed files, static viewer; binds to 127.0.0.1 |
 | Viewer | `viewer/` | React + deck.gl, **one folder level at a time** (ADR-0006): blocks = folders/files/classes/functions, size and height = number of functions, 2.5D city or 2D map, lenses (Architecture, Tests, Data, API), selection with callers/callees and source, search, live updates, open in VS Code, shareable URL state. 13 unit tests for tree/layout/model logic; built in CI. |
