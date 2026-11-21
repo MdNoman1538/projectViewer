@@ -9,6 +9,8 @@ const CONTROLLER = { inertia: 250, scrollZoom: { speed: 0.012, smooth: false }, 
 const CONTROLLER_3D = { ...CONTROLLER, dragMode: "pan", dragRotate: true }; // right-drag / Ctrl-drag rotates
 const FONT = "Inter, -apple-system, 'Segoe UI', sans-serif";
 const NAME_PX = 14;
+const CHANGED = [204, 72, 72];
+const AFFECTED = [222, 150, 60];
 const SUB_PX = 11;
 
 const flat = (r) => [
@@ -76,6 +78,10 @@ function fillFor(t, ctx) {
   } else if (ctx.lens === "api") {
     c = s.endpoints || ctx.lensSet.has(t.id) ? mix(c, BLUE, 0.65) : dim(c, 0.6);
   }
+  if (ctx.marks) {
+    const m = ctx.marks.get(t.id);
+    c = m === "changed" ? CHANGED : m === "affected" ? AFFECTED : dim(c, 0.42);
+  }
   if (ctx.sel) {
     if (t.id === ctx.sel) c = mix(c, SEL, 0.4);
     else if (ctx.relOut.has(t.id)) c = mix(c, OUT, 0.5);
@@ -86,7 +92,7 @@ function fillFor(t, ctx) {
 }
 
 // Names and badges in screen pixels, placed without overlap (biggest blocks first).
-function labelsFor(L, vs, size, is3d, lens, ix) {
+function labelsFor(L, vs, size, is3d, lens, ix, marks) {
   const vp = makeViewport(vs, is3d, size);
   const s = 2 ** vs.zoom;
   const cands = [];
@@ -96,7 +102,8 @@ function labelsFor(L, vs, size, is3d, lens, ix) {
     const maxChars = Math.max(4, Math.floor((wpx + 30) / (NAME_PX * 0.58)));
     const name = b.t.kind === "function" ? `${b.t.name}()` : b.t.name;
     const text = name.length > maxChars ? `${name.slice(0, maxChars - 1)}…` : name;
-    const sub = badge(b.t, lens, ix);
+    const mark = marks?.get(b.id);
+    const sub = marks ? (mark === "changed" ? "changed" : mark === "affected" ? "affected" : "") : badge(b.t, lens, ix);
     const pos = is3d ? top3d(b) : centre(b);
     const [sx, sy] = vp.project(pos);
     if (sx < -100 || sy < -60 || sx > size.width + 100 || sy > size.height + 60) continue;
@@ -111,7 +118,7 @@ function labelsFor(L, vs, size, is3d, lens, ix) {
   return placed;
 }
 
-export default function MapView({ L, ix, sel, lens, lensSet, links, viewState, onViewState, size, onSelect, onTile, mode }) {
+export default function MapView({ L, ix, sel, lens, lensSet, links, viewState, onViewState, size, onSelect, onTile, mode, marks }) {
   const is3d = mode === "3d";
 
   const ctx = useMemo(() => {
@@ -122,8 +129,8 @@ export default function MapView({ L, ix, sel, lens, lensSet, links, viewState, o
         if (l.source === sel) relOut.add(l.target);
         if (l.target === sel) relIn.add(l.source);
       }
-    return { sel, lens, lensSet, ix, relOut, relIn };
-  }, [sel, lens, lensSet, ix, links]);
+    return { sel, lens, lensSet, ix, relOut, relIn, marks };
+  }, [sel, lens, lensSet, ix, links, marks]);
 
   const paths = useMemo(() => {
     const res = [];
@@ -148,7 +155,7 @@ export default function MapView({ L, ix, sel, lens, lensSet, links, viewState, o
   const posKey = viewState.target.map((v) => Math.round(v / (40 / 2 ** zoomKey))).join(",");
   const rotKey = `${Math.round(viewState.rotationX ?? 0)}:${Math.round((viewState.rotationOrbit ?? 0) / 3)}`;
   // biome-ignore lint: deliberate coarse dependencies
-  const labels = useMemo(() => labelsFor(L, viewState, size, is3d, lens, ix), [L, zoomKey, posKey, rotKey, size.width, size.height, is3d, lens, ix]);
+  const labels = useMemo(() => labelsFor(L, viewState, size, is3d, lens, ix, marks), [L, zoomKey, posKey, rotKey, size.width, size.height, is3d, lens, ix, marks]);
 
   const tiles = useMemo(() => L.blocks.flatMap((b) => roofTiles(b)), [L]);
   const tileFill = (tile) => {

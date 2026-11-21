@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { layoutLevel, roofTiles } from "./layout.js";
 import { indexWorld } from "./model.js";
-import { blockDeps, buildTree, levelLinks, treeAncestors } from "./tree.js";
+import { blockDeps, buildTree, changeMarks, levelLinks, treeAncestors } from "./tree.js";
 
 const node = (id, kind, name, parent, file, attrs = {}) => ({ id, kind, name, parent, group: "g", file, line: 1, end_line: 5, attrs });
 const edge = (source, target, kind = "calls") => ({ source, target, kind, certainty: "proven", count: 1 });
@@ -116,4 +116,19 @@ test("roof tiles divide a block's top into its children, inside the block", () =
   }
   assert.deepEqual(roofTiles(L.rects.get("file:src/api.py")).length, 2); // a function and an endpoint
   assert.deepEqual(roofTiles({ ...shop, t: { ...shop.t, children: [shop.t.children[0]] } }), []); // one child: nothing to divide
+});
+
+test("change marks: changed blocks and every block containing them; affected ones too", () => {
+  const { tree } = setup();
+  const marks = changeMarks(tree, {
+    changed: { "py:src.shop.tax.rate": "modified" },
+    upstream: { "py:src.shop.cart.Cart.total": 1, "py:src.api.get_total": 2 },
+    downstream: {},
+  });
+  assert.equal(marks.get("py:src.shop.tax.rate"), "changed");
+  assert.equal(marks.get("file:src/shop/tax.py"), "changed");
+  assert.equal(marks.get("dir:src/shop"), "changed"); // contains a change: changed wins over affected
+  assert.equal(marks.get("file:src/shop/cart.py"), "affected");
+  assert.equal(marks.get("file:src/api.py"), "affected");
+  assert.equal(marks.get("dir:tests"), undefined);
 });

@@ -150,3 +150,19 @@ export function blockDeps(ix, tree, focusId, blockId) {
   const sorted = (m) => [...m.entries()].sort((a, b) => b[1] - a[1]);
   return { out: sorted(out), in: sorted(inn) };
 }
+
+// Change overlay: a block is "changed" when anything inside it changed, else "affected" when anything
+// inside it depends on or is reached by the change.
+export function changeMarks(tree, cs) {
+  const marks = new Map();
+  const up = (id, v) => {
+    for (let t = tree.T.get(id); t; t = t.parent ? tree.T.get(t.parent) : null) {
+      const cur = marks.get(t.id);
+      if (cur === "changed" || cur === v) break; // ancestors are already marked at least this strongly
+      marks.set(t.id, v);
+    }
+  };
+  for (const id of Object.keys(cs?.changed || {})) up(id, "changed");
+  for (const id of [...Object.keys(cs?.upstream || {}), ...Object.keys(cs?.downstream || {})]) up(id, "affected");
+  return marks;
+}
