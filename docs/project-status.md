@@ -51,5 +51,5 @@ Apple M3 (8 cores), Python 3.12, best of N runs.
 | 3 | The warm path re-reads every cache entry (~0.9 s on pandas) | Phase 4: in-memory facts; skip unchanged files by mtime + size (like git's index) |
 | 4 | SQL is detected only in UPPERCASE keywords. SQL inside test fixtures and registered DataFrames show up as tables. | Accepted; certainty is `pattern` |
 | 5 | Imports inside functions are treated as module-wide | Accepted approximation |
-| 6 | Nested functions are not registered (~28 missed calls in our own code); literal-typed values (`x = {}`) count as unresolved; the headline \"% linked\" metric overstates misses | Next PR (test-first) |
+| 6 | Nested functions are not registered (~28 missed calls in our own code); literal-typed values (`x = {}`) count as unresolved; the headline "% linked" metric overstates misses | Next PR (test-first) |
 | 7 | Parallel parsing fails when called from stdin/REPL on macOS ("spawn") | Handled: automatic fallback to serial |
