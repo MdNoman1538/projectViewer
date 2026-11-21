@@ -33,6 +33,24 @@ export function layoutLevel(focus) {
   return { blocks, rects, width: WIDTH, height: HEIGHT, zTop: Math.max(...blocks.map((b) => b.h)), measure: byFunctions ? "functions" : "lines" };
 }
 
+// The roof of a block, divided into its children (one level deep): shows how a module is organised
+// without opening it. Area follows the same size measure as the blocks. No division for 0–1 children.
+export function roofTiles(block, inset = 4, gap = 2.5) {
+  const kids = block.t.children;
+  if (kids.length < 2) return [];
+  const w = block.x1 - block.x0 - 2 * inset;
+  const h = block.y1 - block.y0 - 2 * inset;
+  if (w <= 4 || h <= 4) return [];
+  const byFunctions = Math.max(...kids.map((k) => k.stats.fn)) > 1;
+  const root = hierarchy({ children: kids.map((t) => ({ t })) })
+    .sum((d) => (d.t ? Math.max(0.6, byFunctions ? d.t.stats.fn : Math.sqrt(d.t.stats.loc)) : 0))
+    .sort((a, b) => b.value - a.value || (a.data.t?.id < b.data.t?.id ? -1 : 1));
+  treemap().tile(treemapSquarify.ratio(1.3)).size([w, h]).paddingInner(gap).round(false)(root);
+  const x = block.x0 + inset;
+  const y = block.y0 + inset;
+  return root.leaves().map((d) => ({ id: d.data.t.id, t: d.data.t, parent: block.id, x0: x + d.x0, y0: y + d.y0, x1: x + d.x1, y1: y + d.y1, z: block.h }));
+}
+
 export const centre = (r) => [(r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2];
 
 // Curved link between two points (quadratic Bézier), as a polyline for deck.gl's PathLayer.

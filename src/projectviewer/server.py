@@ -1,13 +1,16 @@
-"""Local viewer server: serves the world of ONE repository, live.
+"""Local viewer server for one or more projects, live.
 
-- GET /api/version  -> {"version": v}   cheap fingerprint of the repo's Python files (paths, mtimes, sizes)
-- GET /api/world    -> the world (gzip if accepted; ETag = version, 304 when unchanged)
-- GET /api/source?file=<repo-relative path>  -> {"file", "lines"}  only files the analyser itself found
-- everything else   -> the built viewer (viewer/dist), with single-page-app fallback to index.html
+- GET /api/projects                         -> [{id, name, path, version, last_change}]   (activity)
+- GET /api/p/<id>/version                   -> {"version": v}  fingerprint of the Python files (paths, mtimes, sizes)
+- GET /api/p/<id>/world                     -> the world (gzip if accepted; ETag = version, 304 when unchanged)
+- GET /api/p/<id>/source?file=<path>        -> {"file", "lines"}  only files the analyser itself found
+- GET /api/p/<id>/commits                   -> recent commits (subject, notes count, issue refs)
+- GET /api/p/<id>/changes?ref=working|<sha> -> changed / affected / notes (see changes.py)
+- GET /api/p/<id>/diff?ref=…&file=<path>    -> {"diff"} unified diff of one file in that change set
+- everything else                           -> the built viewer (viewer/dist), single-page-app fallback
 
-Binds to 127.0.0.1 only: nothing is reachable from other machines.
-The browser polls /api/version and re-fetches the world when it changes. The Phase 4 service will
-push changes instead (Server-Sent Events).
+Binds to 127.0.0.1 only: nothing is reachable from other machines. The browser polls; the Phase 4
+service will push changes instead (Server-Sent Events).
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ import gzip
 import hashlib
 import json
 import mimetypes
+import re
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -23,49 +27,60 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from projectviewer.analyzers.python import map_repo
-from projectviewer.analyzers.python.mapper import discover
+from projectviewer.analyzers.python.mapper import _git, discover
 from projectviewer.cache import Cache
+from projectviewer.changes import change_set, commit_list, file_diff
+from projectviewer.registry import unique_id
 
 DEFAULT_WEB_DIR = Path(__file__).resolve().parents[2] / "viewer" / "dist"
 MAX_SOURCE_BYTES = 2_000_000
+REF = re.compile(r"^(working|[0-9a-fA-F]{4,40}|HEAD(~\d{1,4})?)$")  # never pass anything else to git
 NOT_BUILT = (
     "<!doctype html><meta charset=utf-8><title>projectViewer</title>"
     "<body style='font:15px system-ui;background:#0f1622;color:#e4ecf8;padding:40px'>"
     "<h2>The viewer is not built yet</h2><p>Run once:</p>"
     "<pre>cd viewer &amp;&amp; npm ci &amp;&amp; npm run build</pre>"
-    "<p>The API is running: <a style='color:#85b7eb' href='/api/world'>/api/world</a></p>"
+    "<p>The API is running: <a style='color:#85b7eb' href='/api/projects'>/api/projects</a></p>"
 )
 
 
-class LiveWorld:
-    """The current world of a repo, rebuilt only when its files change."""
+class Project:
+    """One repository: its current world (rebuilt only when files change) and its change sets."""
 
-    def __init__(self, root: Path, cache: Cache | None):
+    def __init__(self, pid: str, root: Path, cache: Cache | None):
+        self.id = pid
         self.root = Path(root).resolve()
+        self.name = self.root.name
         self.cache = cache
         self._lock = threading.Lock()
         self._version: str | None = None
-        self._body: bytes = b""
-        self._gz: bytes = b""
+        self._world: dict | None = None
+        self._body = b""
+        self._gz = b""
         self._files: frozenset[str] = frozenset()
+        self._changes: dict[tuple[str, str], dict] = {}
 
-    def version(self) -> str:
+    def fingerprint(self) -> tuple[str, int]:
+        """(version, last change in ms): cheap, from paths + mtimes + sizes of the Python files."""
         h = hashlib.sha1()
+        last = 0
         for rel in discover(self.root):
             try:
                 st = (self.root / rel).stat()
             except FileNotFoundError:
                 continue
+            last = max(last, st.st_mtime_ns)
             h.update(f"{rel}\0{st.st_mtime_ns}\0{st.st_size}\n".encode())
-        return h.hexdigest()[:16]
+        return h.hexdigest()[:16], last // 1_000_000
 
     def current(self) -> tuple[str, bytes, bytes]:
         """(version, json bytes, gzipped json bytes); re-maps only if the version changed."""
         with self._lock:
-            v = self.version()
+            v, _ = self.fingerprint()
             if v != self._version:
                 world = map_repo(self.root, cache=self.cache)
                 world["version"] = v
+                self._world = world
                 self._body = json.dumps(world, separators=(",", ":")).encode()
                 self._gz = gzip.compress(self._body, compresslevel=5)
                 self._files = frozenset(n["file"] for n in world["nodes"] if n["kind"] == "file")
@@ -73,18 +88,40 @@ class LiveWorld:
             return self._version, self._body, self._gz
 
     def is_project_file(self, rel: str) -> bool:
-        if not self._files:
-            self.current()
+        self.current()
         return rel in self._files
+
+    def changes(self, ref: str) -> dict:
+        version, _, _ = self.current()
+        if ref != "working":  # HEAD / HEAD~n move with every commit: cache by the commit they name now
+            sha = (_git(self.root, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}") or "").strip()
+            if not sha:
+                raise ValueError(f"unknown revision: {ref}")
+            ref = sha
+        key = (ref, version if ref == "working" else "")  # commits never change; the working copy does
+        with self._lock:
+            hit = self._changes.get(key)
+        if hit is None:
+            hit = change_set(self.root, ref, self.cache, after=self._world if ref == "working" else None)
+            with self._lock:
+                if len(self._changes) > 200:
+                    self._changes.clear()
+                self._changes[key] = hit
+        return hit
 
 
 def make_server(
-    root: Path,
+    roots: Path | list[Path],
     port: int = 8765,
     web_dir: Path | None = None,
     cache: Cache | None = None,
+    ids: list[str] | None = None,
 ) -> ThreadingHTTPServer:
-    live = LiveWorld(root, cache)
+    roots = [roots] if isinstance(roots, (str, Path)) else list(roots)
+    projects: dict[str, Project] = {}
+    for i, root in enumerate(roots):
+        pid = ids[i] if ids else unique_id(Path(root).resolve(), set(projects))
+        projects[pid] = Project(pid, root, cache)
     web = Path(web_dir or DEFAULT_WEB_DIR).resolve()
 
     class Handler(BaseHTTPRequestHandler):
@@ -111,21 +148,60 @@ def make_server(
         def do_GET(self):  # noqa: N802 - http.server naming
             url = urlparse(self.path)
             path = unquote(url.path)
+            q = {k: v[0] for k, v in parse_qs(url.query).items()}
             try:
-                if path == "/api/version":
-                    return self._json({"version": live.version()})
-                if path == "/api/world":
-                    return self._world()
-                if path == "/api/source":
-                    return self._source(parse_qs(url.query).get("file", [""])[0])
+                if path == "/api/projects":
+                    return self._projects()
+                m = re.match(r"^/api/p/([^/]+)/(\w+)$", path)
+                if m:
+                    p = projects.get(m.group(1))
+                    if p is None:
+                        return self._json({"error": "unknown project"}, HTTPStatus.NOT_FOUND)
+                    return self._project(p, m.group(2), q)
+                if path.startswith("/api/"):
+                    return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
                 return self._static(path)
             except BrokenPipeError:
                 return None
 
         do_HEAD = do_GET
 
-        def _world(self):
-            version, body, gz = live.current()
+        def _projects(self):
+            out = []
+            for p in projects.values():
+                version, last = p.fingerprint()
+                out.append(
+                    {"id": p.id, "name": p.name, "path": str(p.root), "version": version, "last_change": last}
+                )
+            self._json(out)
+
+        def _project(self, p: Project, what: str, q: dict):
+            if what == "version":
+                return self._json({"version": p.fingerprint()[0]})
+            if what == "world":
+                return self._world(p)
+            if what == "source":
+                return self._source(p, q.get("file", ""))
+            if what == "commits":
+                return self._json(commit_list(p.root))
+            if what in ("changes", "diff"):
+                ref = q.get("ref", "")
+                if not REF.match(ref):
+                    return self._json({"error": "bad ref"}, HTTPStatus.BAD_REQUEST)
+                try:
+                    cs = p.changes(ref)
+                except ValueError as exc:
+                    return self._json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
+                if what == "changes":
+                    return self._json(cs)
+                rel = q.get("file", "")
+                if rel not in cs["files"] and not p.is_project_file(rel):
+                    return self._json({"error": "not a file of this change"}, HTTPStatus.NOT_FOUND)
+                return self._json({"file": rel, "diff": file_diff(p.root, ref, rel)})
+            return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+
+        def _world(self, p: Project):
+            version, body, gz = p.current()
             etag = f'"{version}"'
             if self.headers.get("If-None-Match") == etag:
                 self.send_response(HTTPStatus.NOT_MODIFIED)
@@ -138,15 +214,14 @@ def make_server(
                 body = gz
             self._send(HTTPStatus.OK, body, headers=headers)
 
-        def _source(self, rel: str):
+        def _source(self, p: Project, rel: str):
             # Only files the analyser found in this repo: no paths outside it, no other file types.
-            if not rel or not live.is_project_file(rel):
+            if not rel or not p.is_project_file(rel):
                 return self._json({"error": "not a project file"}, HTTPStatus.NOT_FOUND)
-            f = live.root / rel
+            f = p.root / rel
             if f.stat().st_size > MAX_SOURCE_BYTES:
                 return self._json({"error": "file too large"}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
-            text = f.read_text(encoding="utf-8", errors="replace")
-            self._json({"file": rel, "lines": text.splitlines()})
+            self._json({"file": rel, "lines": f.read_text(encoding="utf-8", errors="replace").splitlines()})
 
         def _static(self, path: str):
             if not (web / "index.html").is_file():
@@ -161,4 +236,6 @@ def make_server(
                 ctype += "; charset=utf-8"
             self._send(HTTPStatus.OK, target.read_bytes(), ctype)
 
-    return ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    srv.projects = projects
+    return srv

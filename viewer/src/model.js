@@ -20,11 +20,15 @@ export function indexWorld(world) {
     push(inn, e.target, e);
   }
 
-  // Which code do the tests reach? Direct = called by a test; reach = within 4 calls of a test.
+  // Which code do the tests reach? Direct = called by a test, or the handler of an endpoint a test
+  // requests over HTTP; reach = within 4 calls of that.
   const testedDirect = new Set();
   for (const n of world.nodes) {
     if (!n.attrs?.is_test) continue;
-    for (const e of out.get(n.id) || []) if (CALLISH.has(e.kind)) testedDirect.add(e.target);
+    for (const e of out.get(n.id) || []) {
+      if (CALLISH.has(e.kind)) testedDirect.add(e.target);
+      if (e.kind === "requests") for (const r of out.get(e.target) || []) if (r.kind === "routes") testedDirect.add(r.target);
+    }
   }
   const testedReach = new Set(testedDirect);
   let frontier = [...testedDirect];

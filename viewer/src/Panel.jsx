@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { badge } from "./MapView.jsx";
+import { ChangeSummary, NodeChange } from "./Changes.jsx";
+import { badge, describe } from "./MapView.jsx";
 import { displayName } from "./model.js";
 import { treeAncestors } from "./tree.js";
 
@@ -77,7 +78,7 @@ function Deps({ title, items, tree, onGo }) {
   );
 }
 
-function Source({ n, version }) {
+function Source({ n, version, api }) {
   const [lines, setLines] = useState(null);
   const [error, setError] = useState(null);
   useEffect(() => {
@@ -85,14 +86,14 @@ function Source({ n, version }) {
     let live = true;
     setLines(null);
     setError(null);
-    fetch(`api/source?file=${encodeURIComponent(n.file)}`)
+    fetch(`${api}/source?file=${encodeURIComponent(n.file)}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status}`))))
       .then((d) => live && setLines(d.lines))
       .catch((e) => live && setError(e.message));
     return () => {
       live = false;
     };
-  }, [n?.file, version]);
+  }, [n?.file, version, api]);
   if (!n?.file) return null;
   if (error) return <p className="muted">Source not available ({error}).</p>;
   if (!lines) return <p className="muted">Loading source…</p>;
@@ -116,8 +117,14 @@ function Source({ n, version }) {
   );
 }
 
-export default function Panel({ ix, tree, t, isFocus, repo, version, lens, deps, onGo, onOpen, onUp, onFocus }) {
+export default function Panel({ ix, tree, t, isFocus, repo, version, lens, deps, onGo, onOpen, onUp, onFocus, api, cs, onShow }) {
   if (!t) return <aside className="panel" />;
+  if (cs && isFocus)
+    return (
+      <aside className="panel">
+        <ChangeSummary cs={cs} ix={ix} onGo={onGo} onShow={onShow} />
+      </aside>
+    );
   const n = t.n;
   const s = t.stats;
   const path = treeAncestors(tree, t.id).map((id) => tree.T.get(id));
@@ -217,6 +224,7 @@ export default function Panel({ ix, tree, t, isFocus, repo, version, lens, deps,
         </table>
       )}
       {n?.kind === "function" && !t.isTest && <p className={`tested ${lens === "tests" ? "strong" : ""}`}>Tests: {badge(t, "tests", ix)}</p>}
+      <NodeChange cs={cs} n={n} api={api} />
 
       {deps && (
         <>
@@ -242,13 +250,13 @@ export default function Panel({ ix, tree, t, isFocus, repo, version, lens, deps,
                 <button type="button" className="linkish" onClick={() => onGo(k.id)}>
                   {k.kind === "function" ? `${k.name}()` : k.name}
                 </button>
-                <small className="muted"> {badge(k, lens, ix)}</small>
+                <small className="muted"> {lens === "map" ? describe(k) : badge(k, lens, ix)}</small>
               </li>
             ))}
           </ul>
         </section>
       )}
-      {n && n.kind !== "table" && n.kind !== "endpoint" && <Source n={n} version={version} />}
+      {n && n.kind !== "table" && n.kind !== "endpoint" && <Source n={n} version={version} api={api} />}
     </aside>
   );
 }

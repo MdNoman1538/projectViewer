@@ -401,3 +401,100 @@ def test_cached_and_uncached_worlds_are_identical(project, tmp_path):
         return {k: v for k, v in w.items() if k not in ("stats", "generated_at")}
 
     assert strip(map_repo(root, cache=cache)) == strip(map_repo(root))
+
+
+# ---------------------------------------------------------------- analyser fixes (round 2)
+
+
+def test_calls_to_nested_functions_are_local_not_unresolved(world):
+    w = world(
+        {
+            "m.py": """
+            def build():
+                def node(x):
+                    return x
+
+                node(1)
+                node(2)
+            """
+        }
+    )
+    c = w.world["stats"]["calls"]
+    assert c["unresolved"] == 0
+    assert c["local"] == 2
+
+
+def test_literal_assignments_have_builtin_types(world):
+    w = world(
+        {
+            "m.py": """
+            def f():
+                items = []
+                index = {}
+                name = "x"
+                items.append(1)
+                index.get("a")
+                name.strip()
+            """
+        }
+    )
+    c = w.world["stats"]["calls"]
+    assert (c["builtin"], c["unresolved"]) == (3, 0)
+
+
+def test_http_calls_in_tests_link_to_endpoints(world):
+    w = world(
+        {
+            "shop/__init__.py": "",
+            "shop/api.py": """
+            from fastapi import FastAPI
+
+            app = FastAPI()
+
+            @app.get("/orders/{order_id}")
+            def get_order(order_id: int):
+                return {}
+
+            @app.post("/orders")
+            def create_order():
+                return {}
+            """,
+            "tests/test_api.py": """
+            def test_get(client):
+                client.get("/orders/42?verbose=1")
+
+            def test_create(client):
+                client.post("/orders", json={})
+
+            def test_unknown(client):
+                client.get("/nope")
+            """,
+        }
+    )
+    e = w.edge("py:tests.test_api.test_get", "endpoint:GET /orders/{order_id}", "requests")
+    assert e and e["certainty"] == "pattern"
+    assert w.edge("py:tests.test_api.test_create", "endpoint:POST /orders", "requests")
+    assert not [x for x in w.edges("requests") if x["source"] == "py:tests.test_api.test_unknown"]
+    assert w.world["stats"]["http"] == {"total": 3, "matched": 2}
+
+
+def test_unresolved_calls_that_could_be_project_calls_are_counted(world):
+    w = world(
+        {
+            "m.py": """
+            def total():
+                pass
+
+            def get():
+                pass
+
+            def f(thing, other, d):
+                thing.total()      # same name as a project function: maybe a missed link
+                other.frobnicate() # no such project function
+                d.get("k")         # also a project name, but far more likely dict.get: not counted
+            """
+        }
+    )
+    c = w.world["stats"]["calls"]
+    assert c["unresolved"] == 3
+    assert c["unresolved_named"] == 1

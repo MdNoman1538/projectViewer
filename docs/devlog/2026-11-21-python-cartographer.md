@@ -98,3 +98,26 @@ What changed (ADR-0006 supersedes the "everything at once" part of ADR-0005):
 - **Dependencies summed between the blocks on screen;** in the panel, outside dependencies are named by their top-level module.
 
 *Lesson:* we drew everything because we *could*. The useful question is what a person needs to see at each step. The screenshots looked "correct" both times; only using the tool showed the first design didn't work.
+
+## Changes, notes, several projects (Phase 3 and part of 4)
+
+The owner's goals: see *what* changed, *where*, *why* and *what it affects*, for live edits, commits and issues; watch an AI work live, as a "window"; several projects in one viewer.
+
+- **Change sets** (`changes.py`, v5's `world_diff` ported):
+  - any commit is mapped straight from git objects, so the working tree is never touched
+  - compared with its parent: changed / new / removed, then impact up to 4 steps
+  - **change notes** come from a `Changes:` section in commit messages, so the author, human or AI, explains each change on the block it touched
+- **The live window:** "Live: uncommitted changes" re-computes on every save. That's what makes AI work visible as it happens.
+- **Several projects:** a registry plus `add/remove/list`, a project switcher, and **follow activity** (it jumps to the project whose files are changing).
+- **Moves:** viewing a real refactor showed "23 removed + new" for a plain folder move. git's rename detection (`-M`) now reports them as **moved** (purple); a move alone never counts as impact.
+- **A code review of the change code found 6 real issues**, 3 of them regressions from the move feature:
+  - a moved file's diff showed the whole file as new
+  - an edited class in a moved file stopped seeding impact
+  - the diff for a pure move could 404
+  - plain `mv` wasn't detected in live mode
+  - `HEAD` change sets were cached forever
+  - a file name with a space broke live mode
+
+  Each got a failing test, then a fix. *Lesson:* the review was cheap and caught what our own tests missed, because the tests only covered the cases we'd thought of.
+
+**Still open:** GitHub issues (the commits already carry `Refs #N`); the timeline; a Claude Code hook for "follow the AI" (which function, which prompt); the background service (launchd).

@@ -16,33 +16,36 @@ Early development. See [docs/roadmap.md](docs/roadmap.md) and [docs/project-stat
 
 ## Use
 
-**Live map in the browser** (updates as you edit code):
+**Live viewer** for all your projects (updates as you, or an AI, edit code):
 
 ```bash
-(cd viewer && npm ci && npm run build)        # once
-uv run projectviewer serve path/to/your/repo --open
+(cd viewer && npm ci && npm run build)            # once
+uv run projectviewer add path/to/project-a        # subscribe projects (stored in ~/.config/projectviewer)
+uv run projectviewer add path/to/project-b
+uv run projectviewer serve --open                 # http://127.0.0.1:8765
 ```
 
-- **Views:** a 2.5D city (height = code size) or a flat 2D map.
-- **Lenses:** Architecture, Tests, Data, API.
-- **Interactions:** click for links, callers and source; "Open in VS Code"; search with `/`.
+- **The map:** your folders as blocks, one level at a time. Size and height = number of functions; the roof shows what's inside. Click to select, click again to go in; Backspace goes up.
+- **Lenses:** Architecture, Tests (share of functions reached by tests, including over HTTP), Data (tables), API (endpoints).
+- **Changes:**
+  - **Live: uncommitted changes** lights up what is being changed (red), moved (purple) and affected (orange) as files are saved
+  - any **commit** shows the same, plus its message and per-symbol **change notes**
+  - **▶ Show** walks through the changes one by one, with each diff
+- **Several projects:** a project switcher, and **follow activity** shows whichever project is changing.
 - **Inside VS Code:** run *Simple Browser: Show* and enter `http://127.0.0.1:8765`.
 
-**Command line:**
-
-```bash
-uv run projectviewer map path/to/your/repo -o myrepo.world.json
-```
-
-Example, projectViewer mapping itself:
+**Change notes:** add a `Changes:` section to commit messages; the viewer attaches each line to the code it names:
 
 ```
-10 files (0 with errors) · 4 classes · 72 functions · 0 endpoints · 1 tables · 95 links
-calls: 106 linked, 112 unresolved (49% of project calls linked), 84 to libraries, 138 builtin
-cache: 10 hits / 0 misses · 18 ms (extract 16, resolve 2)
+fix(tax): new VAT rate
+
+Changes:
+- shop/tax.py::rate: changed. Returns the new rate.
+- shop/tax.py::label: new. Name shown on receipts.
+Refs #7
 ```
 
-Every link in the world carries a certainty: `proven`, `inferred` or `pattern`. Calls that can't be resolved are counted, never guessed.
+**Command line:** `projectviewer map <repo> -o out.world.json` writes the analysed world (JSON).
 
 ## Quick start (developers)
 

@@ -18,7 +18,7 @@ from __future__ import annotations
 import ast
 import re
 
-EXTRACTOR_VERSION = "2"  # bump whenever the facts change shape: invalidates cached results (ADR-0003)
+EXTRACTOR_VERSION = "3"  # bump whenever the facts change shape: invalidates cached results (ADR-0003)
 SCRIPT = "<module>"
 HTTP_VERBS = {"get", "post", "put", "delete", "patch", "head", "options"}
 
@@ -133,9 +133,14 @@ def _without_docstring(body: list[ast.stmt]) -> list[ast.stmt]:
     return body
 
 
+_LITERALS = (ast.Dict, ast.List, ast.Set, ast.Tuple, ast.JoinedStr, ast.ListComp, ast.DictComp, ast.SetComp)
+
+
 def _type_spec(value: ast.AST | None, annotation: ast.AST | None) -> dict | None:
     if annotation is not None:
         return {"ann": ast.unparse(annotation)}
+    if isinstance(value, _LITERALS) or (isinstance(value, ast.Constant) and value.value is not None):
+        return {"builtin": True}  # [], {}, "", 1, f"…": a builtin object
     if isinstance(value, ast.Call):
         ch = chain_of(value.func)
         if ch:
@@ -144,15 +149,20 @@ def _type_spec(value: ast.AST | None, annotation: ast.AST | None) -> dict | None
 
 
 def _body_facts(body: list[ast.stmt]) -> dict:
-    """Calls, local variable types and SQL tables found in a list of statements.
-    Nested function/class bodies are included: their effects belong to the enclosing code."""
-    calls, vars_, sql = [], {}, []
+    """Calls, local variable types, SQL tables, HTTP requests and nested definitions found in a list
+    of statements. Nested function/class bodies are included: their effects belong to the enclosing code."""
+    calls, vars_, sql, http, local_defs = [], {}, [], [], []
     for stmt in body:
         for n in ast.walk(stmt):
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                local_defs.append(n.name)
             if isinstance(n, ast.Call):
                 ch = chain_of(n.func)
                 if ch:
                     calls.append({"chain": ch, "line": n.lineno})
+                req = _http_request(n)
+                if req:
+                    http.append(req)
             elif isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name):
                 spec = _type_spec(n.value, None)
                 if spec:
@@ -165,7 +175,22 @@ def _body_facts(body: list[ast.stmt]) -> dict:
                     vars_[n.optional_vars.id] = spec
     for text, line in _strings(body):
         sql += [{"table": t, "op": op, "line": line} for t, op in sql_tables(text)]
-    return {"calls": calls, "vars": vars_, "sql": sql}
+    return {"calls": calls, "vars": vars_, "sql": sql, "http": http, "local_defs": sorted(set(local_defs))}
+
+
+def _http_request(call: ast.Call) -> dict | None:
+    """`client.get("/orders/42?x=1")` -> {"verb": "GET", "path": "/orders/42"}: a test talking to an API."""
+    f = call.func
+    if (
+        isinstance(f, ast.Attribute)
+        and f.attr in HTTP_VERBS
+        and call.args
+        and isinstance(call.args[0], ast.Constant)
+        and isinstance(call.args[0].value, str)
+        and call.args[0].value.startswith("/")
+    ):
+        return {"verb": f.attr.upper(), "path": call.args[0].value.split("?", 1)[0], "line": call.lineno}
+    return None
 
 
 def _self_attr_types(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> dict:
@@ -336,7 +361,7 @@ def extract(path: str, source: str) -> dict:
 
     script = _body_facts(_without_docstring(top_level))
     facts["module_vars"] = script["vars"]
-    if script["calls"] or script["sql"]:
+    if script["calls"] or script["sql"] or script["http"]:
         lines = [s.lineno for s in top_level]
         ends = [s.end_lineno or s.lineno for s in top_level]
         facts["functions"].append(

@@ -2,13 +2,16 @@ import { PathLayer, PolygonLayer, ScatterplotLayer, SolidPolygonLayer, TextLayer
 import DeckGL from "@deck.gl/react";
 import { useMemo } from "react";
 import { AMBER, BAD, BLUE, dim, GOOD, GROUND, IN, KIND, mix, OK, OUT, SEL, TEAL, TEXT, TEXT_DIM } from "./colors.js";
-import { centre, curve, curve3d } from "./layout.js";
+import { centre, curve, curve3d, roofTiles } from "./layout.js";
 import { fromDeck, makeViewport, toDeck, VIEW_2D, VIEW_3D } from "./view.js";
 
 const CONTROLLER = { inertia: 250, scrollZoom: { speed: 0.012, smooth: false }, doubleClickZoom: false, keyboard: false };
 const CONTROLLER_3D = { ...CONTROLLER, dragMode: "pan", dragRotate: true }; // right-drag / Ctrl-drag rotates
 const FONT = "Inter, -apple-system, 'Segoe UI', sans-serif";
 const NAME_PX = 14;
+const CHANGED = [204, 72, 72];
+const AFFECTED = [222, 150, 60];
+const MOVED = [128, 112, 214];
 const SUB_PX = 11;
 
 const flat = (r) => [
@@ -25,9 +28,16 @@ const top3d = (b) => {
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const fmt = (n) => n.toLocaleString("en");
 
-// The second line under a block's name: what matters about it, for the current lens.
+// Facts about a block (tooltips, lists): functions, files, lines.
+export function describe(t) {
+  return badge(t, "facts");
+}
+
+// The second line under a block's name, for the current lens. The architecture lens shows names only:
+// the block's size already tells how big it is.
 export function badge(t, lens, ix) {
   const s = t.stats;
+  if (lens === "map") return "";
   if (lens === "tests") {
     if (t.kind === "function") return t.isTest ? "test" : ix.testedDirect.has(t.id) ? "tested" : ix.testedReach.has(t.id) ? "tested indirectly" : "no test";
     if (t.isTest) return `${s.tests} tests`;
@@ -69,6 +79,10 @@ function fillFor(t, ctx) {
   } else if (ctx.lens === "api") {
     c = s.endpoints || ctx.lensSet.has(t.id) ? mix(c, BLUE, 0.65) : dim(c, 0.6);
   }
+  if (ctx.marks) {
+    const m = ctx.marks.get(t.id);
+    c = m === "changed" ? CHANGED : m === "moved" ? MOVED : m === "affected" ? AFFECTED : dim(c, 0.42);
+  }
   if (ctx.sel) {
     if (t.id === ctx.sel) c = mix(c, SEL, 0.4);
     else if (ctx.relOut.has(t.id)) c = mix(c, OUT, 0.5);
@@ -79,7 +93,7 @@ function fillFor(t, ctx) {
 }
 
 // Names and badges in screen pixels, placed without overlap (biggest blocks first).
-function labelsFor(L, vs, size, is3d, lens, ix) {
+function labelsFor(L, vs, size, is3d, lens, ix, marks) {
   const vp = makeViewport(vs, is3d, size);
   const s = 2 ** vs.zoom;
   const cands = [];
@@ -89,7 +103,8 @@ function labelsFor(L, vs, size, is3d, lens, ix) {
     const maxChars = Math.max(4, Math.floor((wpx + 30) / (NAME_PX * 0.58)));
     const name = b.t.kind === "function" ? `${b.t.name}()` : b.t.name;
     const text = name.length > maxChars ? `${name.slice(0, maxChars - 1)}…` : name;
-    const sub = badge(b.t, lens, ix);
+    const mark = marks?.get(b.id);
+    const sub = marks ? mark || "" : badge(b.t, lens, ix);
     const pos = is3d ? top3d(b) : centre(b);
     const [sx, sy] = vp.project(pos);
     if (sx < -100 || sy < -60 || sx > size.width + 100 || sy > size.height + 60) continue;
@@ -104,7 +119,7 @@ function labelsFor(L, vs, size, is3d, lens, ix) {
   return placed;
 }
 
-export default function MapView({ L, ix, sel, lens, lensSet, links, viewState, onViewState, size, onSelect, mode }) {
+export default function MapView({ L, ix, sel, lens, lensSet, links, viewState, onViewState, size, onSelect, onTile, mode, marks }) {
   const is3d = mode === "3d";
 
   const ctx = useMemo(() => {
@@ -115,8 +130,8 @@ export default function MapView({ L, ix, sel, lens, lensSet, links, viewState, o
         if (l.source === sel) relOut.add(l.target);
         if (l.target === sel) relIn.add(l.source);
       }
-    return { sel, lens, lensSet, ix, relOut, relIn };
-  }, [sel, lens, lensSet, ix, links]);
+    return { sel, lens, lensSet, ix, relOut, relIn, marks };
+  }, [sel, lens, lensSet, ix, links, marks]);
 
   const paths = useMemo(() => {
     const res = [];
@@ -141,8 +156,16 @@ export default function MapView({ L, ix, sel, lens, lensSet, links, viewState, o
   const posKey = viewState.target.map((v) => Math.round(v / (40 / 2 ** zoomKey))).join(",");
   const rotKey = `${Math.round(viewState.rotationX ?? 0)}:${Math.round((viewState.rotationOrbit ?? 0) / 3)}`;
   // biome-ignore lint: deliberate coarse dependencies
-  const labels = useMemo(() => labelsFor(L, viewState, size, is3d, lens, ix), [L, zoomKey, posKey, rotKey, size.width, size.height, is3d, lens, ix]);
+  const labels = useMemo(() => labelsFor(L, viewState, size, is3d, lens, ix, marks), [L, zoomKey, posKey, rotKey, size.width, size.height, is3d, lens, ix, marks]);
 
+  const tiles = useMemo(() => L.blocks.flatMap((b) => roofTiles(b)), [L]);
+  const tileFill = (tile) => {
+    const own = fillFor(tile.t, { ...ctx, sel: null }); // the tile's own lens colour (e.g. its % tested)
+    let c = mix(own, [255, 255, 255], 0.07);
+    if (ctx.sel && tile.parent !== ctx.sel && !ctx.relOut.has(tile.parent) && !ctx.relIn.has(tile.parent)) c = dim(c, 0.62);
+    else if (ctx.sel && tile.parent === ctx.sel) c = mix(c, SEL, 0.3);
+    return [...c, 255];
+  };
   const groundRect = { x0: -30, y0: -30, x1: L.width + 30, y1: L.height + 30 };
   const lineColor = (b) => (b.id === sel ? [...SEL, 255] : [255, 255, 255, 40]);
   const layers = [
@@ -179,6 +202,20 @@ export default function MapView({ L, ix, sel, lens, lensSet, links, viewState, o
           highlightColor: [255, 255, 255, 40],
           updateTriggers: { getFillColor: [ctx], getLineColor: [sel], getLineWidth: [sel] },
         }),
+    new PolygonLayer({
+      id: "roofs",
+      data: tiles,
+      getPolygon: (d) => (is3d ? flat(d).map(([x, y]) => [x, -y, d.z + 0.4]) : flat(d)),
+      getFillColor: tileFill,
+      getLineColor: [8, 13, 22, 230],
+      getLineWidth: 1.2,
+      lineWidthUnits: "pixels",
+      stroked: true,
+      pickable: true,
+      autoHighlight: true,
+      highlightColor: [255, 255, 255, 60],
+      updateTriggers: { getFillColor: [ctx], getPolygon: [is3d] },
+    }),
     new PathLayer({
       id: "links",
       data: paths,
@@ -244,12 +281,15 @@ export default function MapView({ L, ix, sel, lens, lensSet, links, viewState, o
       onViewStateChange={({ viewState: v }) => onViewState(fromDeck(v, is3d, viewState))}
       controller={is3d ? CONTROLLER_3D : CONTROLLER}
       layers={layers}
-      onClick={(info) => onSelect(info.object && info.layer?.id === "blocks" ? info.object.id : null, { fromMap: true })}
+      onClick={(info) => {
+        if (info.object && info.layer?.id === "roofs") return onTile(info.object);
+        onSelect(info.object && info.layer?.id === "blocks" ? info.object.id : null, { fromMap: true });
+      }}
       getCursor={({ isHovering, isDragging }) => (isDragging ? "grabbing" : isHovering ? "pointer" : "grab")}
       getTooltip={({ object, layer }) =>
-        layer?.id === "blocks" &&
+        (layer?.id === "blocks" || layer?.id === "roofs") &&
         object && {
-          html: `<b>${escapeHtml(object.t.name)}</b><br/>${escapeHtml(badge(object.t, "map", ix))}${object.t.children.length ? "<br/><i>click again to open</i>" : ""}`,
+          html: `<b>${escapeHtml(object.t.name)}</b><br/>${escapeHtml(describe(object.t))}${lens !== "map" && badge(object.t, lens, ix) ? `<br/>${escapeHtml(badge(object.t, lens, ix))}` : ""}<br/><i>${layer.id === "roofs" ? "click to open" : object.t.children.length ? "click again to open" : "click to select"}</i>`,
           style: { background: "#1b2638", color: "#e4ecf8", fontSize: "12px", borderRadius: "6px", padding: "6px 8px" },
         }
       }

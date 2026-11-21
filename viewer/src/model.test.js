@@ -72,3 +72,21 @@ test("3D curve lifts in the middle and ends on the targets", () => {
   assert.deepEqual(pts.at(-1), [100, 0, 20]);
   assert.ok(pts[Math.floor(pts.length / 2)][2] > 20);
 });
+
+test("tests that call an API over HTTP reach the endpoint's handler directly", () => {
+  const ix = indexWorld({
+    nodes: [
+      { id: "py:t.test_api", kind: "function", name: "test_api", parent: null, attrs: { is_test: true } },
+      { id: "endpoint:GET /x", kind: "endpoint", name: "GET /x", parent: null, attrs: {} },
+      { id: "py:api.handler", kind: "function", name: "handler", parent: null, attrs: {} },
+      { id: "py:core.work", kind: "function", name: "work", parent: null, attrs: {} },
+    ],
+    edges: [
+      { source: "py:t.test_api", target: "endpoint:GET /x", kind: "requests", certainty: "pattern", count: 1 },
+      { source: "endpoint:GET /x", target: "py:api.handler", kind: "routes", certainty: "proven", count: 1 },
+      { source: "py:api.handler", target: "py:core.work", kind: "calls", certainty: "proven", count: 1 },
+    ],
+  });
+  assert.ok(ix.testedDirect.has("py:api.handler"));
+  assert.ok(ix.testedReach.has("py:core.work"));
+});
