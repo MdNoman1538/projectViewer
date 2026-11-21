@@ -14,6 +14,39 @@ It runs **locally** as a small background service. Projects *subscribe*; nothing
 
 Early development. See [docs/roadmap.md](docs/roadmap.md) and [docs/project-status.md](docs/project-status.md).
 
+## Use
+
+**Live viewer** for all your projects (updates as you, or an AI, edit code):
+
+```bash
+(cd viewer && npm ci && npm run build)            # once
+uv run projectviewer add path/to/project-a        # subscribe projects (stored in ~/.config/projectviewer)
+uv run projectviewer add path/to/project-b
+uv run projectviewer serve --open                 # http://127.0.0.1:8765
+```
+
+- **The map:** your folders as blocks, one level at a time. Size and height = number of functions; the roof shows what's inside. Click to select, click again to go in; Backspace goes up.
+- **Lenses:** Architecture, Tests (share of functions reached by tests, including over HTTP), Data (tables), API (endpoints).
+- **Changes:**
+  - **Live: uncommitted changes** lights up what is being changed (red), moved (purple) and affected (orange) as files are saved
+  - any **commit** shows the same, plus its message and per-symbol **change notes**
+  - **▶ Show** walks through the changes one by one, with each diff
+- **Several projects:** a project switcher, and **follow activity** shows whichever project is changing.
+- **Inside VS Code:** run *Simple Browser: Show* and enter `http://127.0.0.1:8765`.
+
+**Change notes:** add a `Changes:` section to commit messages; the viewer attaches each line to the code it names:
+
+```
+fix(tax): new VAT rate
+
+Changes:
+- shop/tax.py::rate: changed. Returns the new rate.
+- shop/tax.py::label: new. Name shown on receipts.
+Refs #7
+```
+
+**Command line:** `projectviewer map <repo> -o out.world.json` writes the analysed world (JSON).
+
 ## Quick start (developers)
 
 ```bash

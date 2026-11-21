@@ -42,3 +42,23 @@ jobs:
         run: uv sync --frozen
       - name: Run tests
         run: uv run --frozen pytest
+
+  viewer:
+    name: Viewer
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: viewer
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: viewer/package-lock.json
+      - name: Install (exactly as locked)
+        run: npm ci --no-audit --no-fund
+      - name: Unit tests
+        run: npm test
+      - name: Production build
+        run: npm run build
