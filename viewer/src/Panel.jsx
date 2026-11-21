@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { badge } from "./MapView.jsx";
+import { badge, describe } from "./MapView.jsx";
 import { displayName } from "./model.js";
 import { treeAncestors } from "./tree.js";
 
@@ -242,7 +242,7 @@ export default function Panel({ ix, tree, t, isFocus, repo, version, lens, deps,
                 <button type="button" className="linkish" onClick={() => onGo(k.id)}>
                   {k.kind === "function" ? `${k.name}()` : k.name}
                 </button>
-                <small className="muted"> {badge(k, lens, ix)}</small>
+                <small className="muted"> {lens === "map" ? describe(k) : badge(k, lens, ix)}</small>
               </li>
             ))}
           </ul>

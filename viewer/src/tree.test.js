@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { layoutLevel } from "./layout.js";
+import { layoutLevel, roofTiles } from "./layout.js";
 import { indexWorld } from "./model.js";
 import { blockDeps, buildTree, levelLinks, treeAncestors } from "./tree.js";
 
@@ -101,4 +101,19 @@ test("level layout: one block per child; one-function blocks fall back to lines;
     L.blocks.map((b) => [b.id, b.x0, b.y0]),
   );
   assert.equal(layoutLevel(tree.T.get("py:src.shop.tax.rate")).blocks.length, 0);
+});
+
+test("roof tiles divide a block's top into its children, inside the block", () => {
+  const { tree } = setup();
+  const L = layoutLevel(tree.T.get("root"));
+  const shop = L.rects.get("dir:src/shop");
+  const tiles = roofTiles(shop);
+  assert.deepEqual(tiles.map((t) => t.id).sort(), ["file:src/shop/cart.py", "file:src/shop/tax.py"]);
+  for (const t of tiles) {
+    assert.ok(t.x0 >= shop.x0 && t.x1 <= shop.x1 && t.y0 >= shop.y0 && t.y1 <= shop.y1, t.id);
+    assert.equal(t.z, shop.h);
+    assert.equal(t.parent, "dir:src/shop");
+  }
+  assert.deepEqual(roofTiles(L.rects.get("file:src/api.py")).length, 2); // a function and an endpoint
+  assert.deepEqual(roofTiles({ ...shop, t: { ...shop.t, children: [shop.t.children[0]] } }), []); // one child: nothing to divide
 });

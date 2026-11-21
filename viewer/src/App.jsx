@@ -9,7 +9,7 @@ import { fitView } from "./view.js";
 
 const POLL_MS = 1500;
 const LENSES = [
-  ["map", "Architecture", "Blocks = folders and files · height and size = number of functions · lines = dependencies"],
+  ["map", "Architecture", "Blocks = folders and files · size and height = number of functions · roof = what is inside · lines = dependencies"],
   ["tests", "Tests", "Share of functions reached by tests · green ≥ 60% · amber ≥ 30% · red below"],
   ["data", "Data", "Which code reads and writes the database tables"],
   ["api", "API", "Where the API endpoints are, and the code behind them"],
@@ -264,6 +264,17 @@ export default function App() {
                 onViewState={setViewState}
                 size={size}
                 onSelect={onSelect}
+                onTile={(tile) => {
+                  // a roof tile: go straight into it (or show it in its block when there is nothing inside)
+                  const t = tree.T.get(tile.id);
+                  if (t?.children.length) {
+                    setFocus(t.id);
+                    setSel(null);
+                  } else {
+                    setFocus(tile.parent);
+                    setSel(tile.id);
+                  }
+                }}
                 mode={mode}
               />
             ) : (

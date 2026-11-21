@@ -2,7 +2,7 @@ import { PathLayer, PolygonLayer, ScatterplotLayer, SolidPolygonLayer, TextLayer
 import DeckGL from "@deck.gl/react";
 import { useMemo } from "react";
 import { AMBER, BAD, BLUE, dim, GOOD, GROUND, IN, KIND, mix, OK, OUT, SEL, TEAL, TEXT, TEXT_DIM } from "./colors.js";
-import { centre, curve, curve3d } from "./layout.js";
+import { centre, curve, curve3d, roofTiles } from "./layout.js";
 import { fromDeck, makeViewport, toDeck, VIEW_2D, VIEW_3D } from "./view.js";
 
 const CONTROLLER = { inertia: 250, scrollZoom: { speed: 0.012, smooth: false }, doubleClickZoom: false, keyboard: false };
@@ -25,9 +25,16 @@ const top3d = (b) => {
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const fmt = (n) => n.toLocaleString("en");
 
-// The second line under a block's name: what matters about it, for the current lens.
+// Facts about a block (tooltips, lists): functions, files, lines.
+export function describe(t) {
+  return badge(t, "facts");
+}
+
+// The second line under a block's name, for the current lens. The architecture lens shows names only:
+// the block's size already tells how big it is.
 export function badge(t, lens, ix) {
   const s = t.stats;
+  if (lens === "map") return "";
   if (lens === "tests") {
     if (t.kind === "function") return t.isTest ? "test" : ix.testedDirect.has(t.id) ? "tested" : ix.testedReach.has(t.id) ? "tested indirectly" : "no test";
     if (t.isTest) return `${s.tests} tests`;
@@ -104,7 +111,7 @@ function labelsFor(L, vs, size, is3d, lens, ix) {
   return placed;
 }
 
-export default function MapView({ L, ix, sel, lens, lensSet, links, viewState, onViewState, size, onSelect, mode }) {
+export default function MapView({ L, ix, sel, lens, lensSet, links, viewState, onViewState, size, onSelect, onTile, mode }) {
   const is3d = mode === "3d";
 
   const ctx = useMemo(() => {
@@ -143,6 +150,14 @@ export default function MapView({ L, ix, sel, lens, lensSet, links, viewState, o
   // biome-ignore lint: deliberate coarse dependencies
   const labels = useMemo(() => labelsFor(L, viewState, size, is3d, lens, ix), [L, zoomKey, posKey, rotKey, size.width, size.height, is3d, lens, ix]);
 
+  const tiles = useMemo(() => L.blocks.flatMap((b) => roofTiles(b)), [L]);
+  const tileFill = (tile) => {
+    const own = fillFor(tile.t, { ...ctx, sel: null }); // the tile's own lens colour (e.g. its % tested)
+    let c = mix(own, [255, 255, 255], 0.07);
+    if (ctx.sel && tile.parent !== ctx.sel && !ctx.relOut.has(tile.parent) && !ctx.relIn.has(tile.parent)) c = dim(c, 0.62);
+    else if (ctx.sel && tile.parent === ctx.sel) c = mix(c, SEL, 0.3);
+    return [...c, 255];
+  };
   const groundRect = { x0: -30, y0: -30, x1: L.width + 30, y1: L.height + 30 };
   const lineColor = (b) => (b.id === sel ? [...SEL, 255] : [255, 255, 255, 40]);
   const layers = [
@@ -179,6 +194,20 @@ export default function MapView({ L, ix, sel, lens, lensSet, links, viewState, o
           highlightColor: [255, 255, 255, 40],
           updateTriggers: { getFillColor: [ctx], getLineColor: [sel], getLineWidth: [sel] },
         }),
+    new PolygonLayer({
+      id: "roofs",
+      data: tiles,
+      getPolygon: (d) => (is3d ? flat(d).map(([x, y]) => [x, -y, d.z + 0.4]) : flat(d)),
+      getFillColor: tileFill,
+      getLineColor: [8, 13, 22, 230],
+      getLineWidth: 1.2,
+      lineWidthUnits: "pixels",
+      stroked: true,
+      pickable: true,
+      autoHighlight: true,
+      highlightColor: [255, 255, 255, 60],
+      updateTriggers: { getFillColor: [ctx], getPolygon: [is3d] },
+    }),
     new PathLayer({
       id: "links",
       data: paths,
@@ -244,12 +273,15 @@ export default function MapView({ L, ix, sel, lens, lensSet, links, viewState, o
       onViewStateChange={({ viewState: v }) => onViewState(fromDeck(v, is3d, viewState))}
       controller={is3d ? CONTROLLER_3D : CONTROLLER}
       layers={layers}
-      onClick={(info) => onSelect(info.object && info.layer?.id === "blocks" ? info.object.id : null, { fromMap: true })}
+      onClick={(info) => {
+        if (info.object && info.layer?.id === "roofs") return onTile(info.object);
+        onSelect(info.object && info.layer?.id === "blocks" ? info.object.id : null, { fromMap: true });
+      }}
       getCursor={({ isHovering, isDragging }) => (isDragging ? "grabbing" : isHovering ? "pointer" : "grab")}
       getTooltip={({ object, layer }) =>
-        layer?.id === "blocks" &&
+        (layer?.id === "blocks" || layer?.id === "roofs") &&
         object && {
-          html: `<b>${escapeHtml(object.t.name)}</b><br/>${escapeHtml(badge(object.t, "map", ix))}${object.t.children.length ? "<br/><i>click again to open</i>" : ""}`,
+          html: `<b>${escapeHtml(object.t.name)}</b><br/>${escapeHtml(describe(object.t))}${lens !== "map" && badge(object.t, lens, ix) ? `<br/>${escapeHtml(badge(object.t, lens, ix))}` : ""}<br/><i>${layer.id === "roofs" ? "click to open" : object.t.children.length ? "click again to open" : "click to select"}</i>`,
           style: { background: "#1b2638", color: "#e4ecf8", fontSize: "12px", borderRadius: "6px", padding: "6px 8px" },
         }
       }
