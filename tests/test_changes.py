@@ -217,3 +217,11 @@ def test_head_change_set_follows_new_commits(repo):
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", "feat: more")
     assert p.changes("HEAD")["sha"] != first
+
+
+def test_notes_from_several_changes_sections_as_in_a_squash_commit():
+    msg = (
+        "feat: big PR (#4)\n\n* feat: first\n\nChanges:\n- a.py::f: new. First.\n\n"
+        "* fix: second\n\nChanges:\n- b.py::g: changed. Second.\n"
+    )
+    assert [n["symbol"] for n in parse_notes(msg)] == ["f", "g"]

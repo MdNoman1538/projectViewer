@@ -9,7 +9,7 @@ By contributing you agree that your contribution is licensed under this reposito
 `main` always works. Every change goes through a pull request.
 
 ```
-Issue → branch → test first (for bugs) → code → local checks → Conventional Commit → push → PR → CI green → human review → squash merge
+Issue → branch → test first (for bugs) → code → local checks → Conventional Commit → push → PR → CI green → human review → merge commit (ADR-0007)
 ```
 
 - **Branches:** `<type>/<short-description>`, for example `feat/python-cartographer`, `fix/cache-key`.
