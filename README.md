@@ -14,7 +14,21 @@ It runs **locally** as a small background service. Projects *subscribe*; nothing
 
 Early development. See [docs/roadmap.md](docs/roadmap.md) and [docs/project-status.md](docs/project-status.md).
 
-## Use (Phase 1: command line)
+## Use
+
+**Live map in the browser** (updates as you edit code):
+
+```bash
+(cd viewer && npm ci && npm run build)        # once
+uv run projectviewer serve path/to/your/repo --open
+```
+
+- **Views:** a 2.5D city (height = code size) or a flat 2D map.
+- **Lenses:** Architecture, Tests, Data, API.
+- **Interactions:** click for links, callers and source; "Open in VS Code"; search with `/`.
+- **Inside VS Code:** run *Simple Browser: Show* and enter `http://127.0.0.1:8765`.
+
+**Command line:**
 
 ```bash
 uv run projectviewer map path/to/your/repo -o myrepo.world.json

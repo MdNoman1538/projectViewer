@@ -1,6 +1,6 @@
 # Project Status
 
-**As of:** 2026-11-21 · **Phase:** 1 (Python cartographer) done. Next: Phase 2 (viewer).
+**As of:** 2026-11-21 · **Phase:** 2 (viewer) working, on branch `feat/viewer`. Next: analyser fixes (nested functions, test→endpoint HTTP links), then Phase 3 (history: changed/affected per commit).
 
 ## What exists
 
@@ -11,7 +11,9 @@
 | Cache | `src/projectviewer/cache.py` | Content-addressed per-file cache in `~/.cache/projectviewer`, written atomically |
 | Mapper | `src/projectviewer/analyzers/python/mapper.py` | File discovery (git-aware), parallel parsing for ≥64 cache misses with serial fallback, world assembly |
 | CLI | `src/projectviewer/cli.py` | `projectviewer map <repo> [-o out.world.json] [--no-cache]` |
-| Tests | `tests/` | 22 behaviour tests on small made-up fixture projects |
+| Tests | `tests/` | 34 Python tests (cartographer + server) on small made-up fixture projects |
+| Server | `src/projectviewer/server.py` | `projectviewer serve <repo>`: world API (gzip, ETag), live version fingerprint, source access limited to the repo's analysed files, static viewer; binds to 127.0.0.1 |
+| Viewer | `viewer/` | React + deck.gl: 2.5D city or 2D treemap, lenses (Architecture, Tests, Data, API), selection with callers/callees and source, search, live updates, open in VS Code, shareable URL state. 10 unit tests for layout/model logic; built in CI. |
 
 ## Accuracy
 

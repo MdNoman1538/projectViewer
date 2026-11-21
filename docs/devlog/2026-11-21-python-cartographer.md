@@ -73,3 +73,16 @@ The repository is public under CC BY-NC 4.0: free for non-commercial use, commer
 ## Next
 
 Phase 2: move the v5 viewer over, adapt it to `project-world/1`, compute the layout from groups, and add click-to-open-in-VS-Code. The 31 MB pandas world shows that loading on demand is needed from the start.
+
+## Later the same day: the viewer (Phase 2)
+
+- **The plan changed after reading the code.** v5's viewer was built around a hard-coded bank layout. A new viewer (nested treemap) was simpler and works for any project. See ADR-0005.
+- **2.5D was added on the owner's request.** Packages are slabs, files sit on them, classes on files, and functions are towers whose height grows with their size. The camera copies v5's (tilted orthographic orbit, 35°).
+- **We checked it by looking at it.** Headless Chrome screenshots after every change. They found four real problems we then fixed:
+  - the map was framed with a guessed size before the real size was measured
+  - package and file labels were invisible at overview zoom
+  - "<module>" labels were meaningless; they now say "top-level code"
+  - labels piled on top of each other; fixed with screen-space collision avoidance
+  - The tilted camera also needed framing by projecting the city's corners through it, not by the flat-map formula.
+- **The Tests lens exposed an analyser gap.** API handlers show "no test reaches them", although `test_api.py` tests them over HTTP (`client.get("/api/…")`). The analyser can't see that a URL string leads to an endpoint. Next fix: match test HTTP calls to endpoints by method and path.
+- **Shareable URL state** (`#lens=tests&sel=…&view=2d`) was added for testing, and is useful on its own.
