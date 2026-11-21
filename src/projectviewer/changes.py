@@ -36,7 +36,8 @@ _REFS = re.compile(r"\b(?:refs|closes|fixes|resolves)\s+#(\d+)", re.I)
 
 
 def parse_notes(message: str) -> list[dict]:
-    """The bullet list under a line `Changes:` (until a blank line or a non-bullet, non-indented line)."""
+    """The bullet lists under every line `Changes:` (each until a blank line or a non-bullet,
+    non-indented line). Several sections occur when commits are squashed into one."""
     notes: list[dict] = []
     inside = False
     for line in message.splitlines():
@@ -46,14 +47,15 @@ def parse_notes(message: str) -> list[dict]:
         if not inside:
             continue
         if not line.strip():
-            break
+            inside = False
+            continue
         m = _NOTE.match(line)
         if m:
             notes.append({"path": m.group(1), "symbol": m.group(2), "text": m.group(3).strip()})
         elif line.startswith((" ", "\t")) and notes:
             notes[-1]["text"] = f"{notes[-1]['text']} {line.strip()}"
         else:
-            break
+            inside = False
     return notes
 
 
