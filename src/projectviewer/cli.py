@@ -35,7 +35,32 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("-o", "--output", type=Path, help="write the world here (default: stdout)")
     m.add_argument("--no-cache", action="store_true", help="analyse every file again")
     m.add_argument("--cache-dir", type=Path, help="cache location (default: ~/.cache/projectviewer)")
+    s = sub.add_parser("serve", help="Open a live map of a repository in the browser")
+    s.add_argument("root", type=Path, help="repository to view")
+    s.add_argument("--port", type=int, default=8765)
+    s.add_argument("--open", action="store_true", help="open the browser")
+    s.add_argument("--cache-dir", type=Path, help="cache location (default: ~/.cache/projectviewer)")
     args = ap.parse_args(argv)
+
+    if args.cmd == "serve":
+        from projectviewer.server import make_server
+
+        if not args.root.is_dir():
+            ap.error(f"not a directory: {args.root}")
+        srv = make_server(args.root, port=args.port, cache=Cache(args.cache_dir))
+        url = f"http://127.0.0.1:{srv.server_address[1]}"
+        print(f"projectViewer: {args.root.resolve()} -> {url}   (Ctrl+C to stop)", file=sys.stderr)
+        if args.open:
+            import webbrowser
+
+            webbrowser.open(url)
+        try:
+            srv.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            srv.server_close()
+        return 0
 
     if args.cmd == "map":
         if not args.root.is_dir():
