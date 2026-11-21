@@ -14,6 +14,22 @@ It runs **locally** as a small background service. Projects *subscribe*; nothing
 
 Early development. See [docs/roadmap.md](docs/roadmap.md) and [docs/project-status.md](docs/project-status.md).
 
+## Use (Phase 1: command line)
+
+```bash
+uv run projectviewer map path/to/your/repo -o myrepo.world.json
+```
+
+Example, projectViewer mapping itself:
+
+```
+10 files (0 with errors) · 4 classes · 72 functions · 0 endpoints · 1 tables · 95 links
+calls: 106 linked, 112 unresolved (49% of project calls linked), 84 to libraries, 138 builtin
+cache: 10 hits / 0 misses · 18 ms (extract 16, resolve 2)
+```
+
+Every link in the world carries a certainty: `proven`, `inferred` or `pattern`. Calls that can't be resolved are counted, never guessed.
+
 ## Quick start (developers)
 
 ```bash
