@@ -14,13 +14,15 @@ from projectviewer.cache import Cache
 def _summary(world: dict) -> str:
     s = world["stats"]
     n, c = s["nodes"], s["calls"]
-    linked = c["resolved"] / max(1, c["resolved"] + c["unresolved"])
+    linked = c["resolved"] / max(1, c["resolved"] + c["unresolved_named"])
     return (
         f"{s['files']['total']} files ({s['files']['errors']} with errors) · "
         f"{n.get('class', 0)} classes · {n.get('function', 0)} functions · "
         f"{n.get('endpoint', 0)} endpoints · {n.get('table', 0)} tables · {sum(s['edges'].values())} links\n"
-        f"calls: {c['resolved']} linked, {c['unresolved']} unresolved ({linked:.0%} of project calls linked), "
-        f"{c['external']} to libraries, {c['builtin']} builtin\n"
+        f"calls: {c['resolved']} linked, {c['unresolved']} unresolved, of which {c['unresolved_named']} "
+        f"look like project calls ({linked:.0%} linked) · {c['external']} to libraries, {c['builtin']} builtin, "
+        f"{c['local']} to inner functions · HTTP: {s['http']['matched']}/{s['http']['total']} test requests "
+        f"matched to endpoints\n"
         f"cache: {s['cache']['hits']} hits / {s['cache']['misses']} misses · "
         f"{s['seconds']['total'] * 1000:.0f} ms (extract {s['seconds']['extract'] * 1000:.0f}, "
         f"resolve {s['seconds']['resolve'] * 1000:.0f})"
