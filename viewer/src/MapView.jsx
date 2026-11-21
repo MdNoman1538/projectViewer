@@ -11,6 +11,7 @@ const FONT = "Inter, -apple-system, 'Segoe UI', sans-serif";
 const NAME_PX = 14;
 const CHANGED = [204, 72, 72];
 const AFFECTED = [222, 150, 60];
+const MOVED = [128, 112, 214];
 const SUB_PX = 11;
 
 const flat = (r) => [
@@ -80,7 +81,7 @@ function fillFor(t, ctx) {
   }
   if (ctx.marks) {
     const m = ctx.marks.get(t.id);
-    c = m === "changed" ? CHANGED : m === "affected" ? AFFECTED : dim(c, 0.42);
+    c = m === "changed" ? CHANGED : m === "moved" ? MOVED : m === "affected" ? AFFECTED : dim(c, 0.42);
   }
   if (ctx.sel) {
     if (t.id === ctx.sel) c = mix(c, SEL, 0.4);
@@ -103,7 +104,7 @@ function labelsFor(L, vs, size, is3d, lens, ix, marks) {
     const name = b.t.kind === "function" ? `${b.t.name}()` : b.t.name;
     const text = name.length > maxChars ? `${name.slice(0, maxChars - 1)}…` : name;
     const mark = marks?.get(b.id);
-    const sub = marks ? (mark === "changed" ? "changed" : mark === "affected" ? "affected" : "") : badge(b.t, lens, ix);
+    const sub = marks ? mark || "" : badge(b.t, lens, ix);
     const pos = is3d ? top3d(b) : centre(b);
     const [sx, sy] = vp.project(pos);
     if (sx < -100 || sy < -60 || sx > size.width + 100 || sy > size.height + 60) continue;

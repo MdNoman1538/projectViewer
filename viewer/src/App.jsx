@@ -429,7 +429,7 @@ export default function App() {
           <div className="lens-note">
             {cs ? (
               <>
-                <span className="swatch red" /> changed · <span className="swatch amber" /> affected · {cs.ref === "working" ? "live: uncommitted changes" : cs.subject}
+                <span className="swatch red" /> changed · <span className="swatch purple" /> moved · <span className="swatch amber" /> affected · {cs.ref === "working" ? "live: uncommitted changes" : cs.subject}
               </>
             ) : (
               <>

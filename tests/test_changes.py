@@ -116,3 +116,21 @@ def test_parse_notes_formats():
         {"path": "src/a.py", "symbol": "Cart.total", "text": "changed. Line one continues here."},
         {"path": "src/b.py", "symbol": None, "text": "moved from old/b.py"},
     ]
+
+
+def test_moved_files_are_moved_not_removed_and_new(repo):
+    (repo / "shop/pricing").mkdir()
+    subprocess.run(
+        ["git", "-C", str(repo), "mv", "shop/tax.py", "shop/pricing/tax.py"], check=True, capture_output=True
+    )
+    (repo / "shop/pricing/__init__.py").write_text("")
+    write(repo, "shop/cart.py", "from shop.pricing.tax import rate\n\ndef total(x):\n    return x * rate()\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "refactor: move tax into pricing")
+    cs = change_set(repo, git(repo, "rev-parse", "HEAD"))
+    assert cs["changed"]["py:shop.pricing.tax.rate"] == "moved"
+    assert cs["moved"]["py:shop.pricing.tax.rate"] == "py:shop.tax.rate"
+    assert "py:shop.tax.rate" not in cs["removed"]
+    assert cs["changed"]["file:shop/cart.py"] in ("modified", "contains")
+    # a move alone changes no behaviour: it is not a source of impact
+    assert "py:shop.api.checkout" not in cs["upstream"]

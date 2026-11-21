@@ -86,9 +86,43 @@ def changed_lines(diff_text: str) -> dict[str, list[tuple[int, int]]]:
     return dict(ranges)
 
 
-def diff_worlds(before: dict, after: dict, diff_text: str, max_hops: int = MAX_HOPS) -> dict:
+def renames(root: Path, *revs: str) -> dict[str, str]:
+    """{new path: old path} for files git sees as moved (rename detection, -M)."""
+    out = _git(root, "diff", "-M", "--name-status", "-z", *revs, "--", "*.py") or ""
+    parts = out.split("\0")
+    moved, i = {}, 0
+    while i < len(parts) - 1:
+        status = parts[i]
+        if status.startswith("R"):
+            moved[parts[i + 2]] = parts[i + 1]
+            i += 3
+        elif status:
+            i += 2
+        else:
+            i += 1
+    return moved
+
+
+def _old_id(nid: str, node: dict, moved: dict[str, str]) -> str | None:
+    """The id the same thing had before its file was moved (ids are derived from paths)."""
+    old_path = moved.get(node.get("file") or "")
+    if not old_path:
+        return None
+    if nid.startswith("file:"):
+        return f"file:{old_path}"
+    new_mod, old_mod = module_name(node["file"]), module_name(old_path)
+    if nid.startswith(f"py:{new_mod}."):
+        return f"py:{old_mod}.{nid[len(new_mod) + 4 :]}"
+    return None
+
+
+def diff_worlds(
+    before: dict, after: dict, diff_text: str, max_hops: int = MAX_HOPS, moved_files: dict | None = None
+) -> dict:
     bn = {n["id"]: n for n in before.get("nodes", [])}
     an = {n["id"]: n for n in after.get("nodes", [])}
+    moved_files = moved_files or {}
+    moved: dict[str, str] = {}
     ranges = changed_lines(diff_text)
     kids: dict[str, list[str]] = defaultdict(list)
     for n in an.values():
@@ -100,8 +134,12 @@ def diff_worlds(before: dict, after: dict, diff_text: str, max_hops: int = MAX_H
         if n["kind"] == "group":
             continue
         if nid not in bn:
-            changed[nid] = "new"
-            continue
+            old = _old_id(nid, n, moved_files)
+            if old and old in bn:
+                moved[nid] = old  # same code, new place: not new, not removed
+            else:
+                changed[nid] = "new"
+                continue
         f, a, b = n.get("file"), n.get("line") or 0, n.get("end_line") or n.get("line") or 0
         touched = f in ranges and (
             n["kind"] == "file"
@@ -109,6 +147,8 @@ def diff_worlds(before: dict, after: dict, diff_text: str, max_hops: int = MAX_H
         )
         if touched:
             changed[nid] = "modified"
+        elif nid in moved:
+            changed[nid] = "moved"
     # a container counts as changed by its members when they explain the change
     for nid, how in list(changed.items()):
         if (
@@ -117,7 +157,10 @@ def diff_worlds(before: dict, after: dict, diff_text: str, max_hops: int = MAX_H
             and any(k in changed for k in kids[nid])
         ):
             changed[nid] = "contains"
-    removed = sorted(nid for nid, n in bn.items() if nid not in an and n["kind"] != "group")
+    moved_from = set(moved.values())
+    removed = sorted(
+        nid for nid, n in bn.items() if nid not in an and n["kind"] != "group" and nid not in moved_from
+    )
 
     fwd: dict[str, list[str]] = defaultdict(list)
     rev: dict[str, list[str]] = defaultdict(list)
@@ -145,6 +188,7 @@ def diff_worlds(before: dict, after: dict, diff_text: str, max_hops: int = MAX_H
 
     return {
         "changed": changed,
+        "moved": moved,
         "removed": removed,
         "upstream": reach(rev),
         "downstream": reach(fwd),
@@ -167,11 +211,11 @@ def change_set(root: Path, ref: str, cache: Cache | None = None, after: dict | N
         base = head.strip() if head else None
         before = map_revision(root, base, cache) if base else {"nodes": [], "edges": []}
         after = after or map_repo(root, cache)
-        diff = _git(root, "diff", "-U0", base or EMPTY_TREE, "--", "*.py") or ""
+        diff = _git(root, "diff", "-U0", "-M", base or EMPTY_TREE, "--", "*.py") or ""
         untracked = (_git(root, "ls-files", "--others", "--exclude-standard", "--", "*.py") or "").split()
         for path in untracked:  # new files: every line is new
             diff += f"\n+++ b/{path}\n@@ -0,0 +1,{max(1, (root / path).read_text(errors='replace').count(chr(10)))} @@\n"
-        cs = diff_worlds(before, after, diff)
+        cs = diff_worlds(before, after, diff, moved_files=renames(root, base) if base else {})
         cs.update(ref="working", sha=None, subject="Uncommitted changes", message="", refs=[], notes=[])
         return cs
 
@@ -181,8 +225,8 @@ def change_set(root: Path, ref: str, cache: Cache | None = None, after: dict | N
     parent = (_git(root, "rev-parse", "--verify", "-q", f"{sha}^") or "").strip()
     before = map_revision(root, parent, cache) if parent else {"nodes": [], "edges": []}
     after = map_revision(root, sha, cache)
-    diff = _git(root, "diff", "-U0", parent or EMPTY_TREE, sha, "--", "*.py") or ""
-    cs = diff_worlds(before, after, diff)
+    diff = _git(root, "diff", "-U0", "-M", parent or EMPTY_TREE, sha, "--", "*.py") or ""
+    cs = diff_worlds(before, after, diff, moved_files=renames(root, parent, sha) if parent else {})
     message = _message(root, sha)
     ids = {n["id"] for n in after["nodes"]}
     notes = []
@@ -234,4 +278,4 @@ def file_diff(root: Path, ref: str, path: str) -> str:
             return "".join(f"+{line}\n" for line in text.splitlines())
         return _git(root, "diff", "HEAD", "--", path) or ""
     parent = (_git(root, "rev-parse", "--verify", "-q", f"{ref}^") or "").strip()
-    return _git(root, "diff", parent or EMPTY_TREE, ref, "--", path) or ""
+    return _git(root, "diff", "-M", parent or EMPTY_TREE, ref, "--", path) or ""

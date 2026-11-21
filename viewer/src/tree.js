@@ -154,15 +154,15 @@ export function blockDeps(ix, tree, focusId, blockId) {
 // Change overlay: a block is "changed" when anything inside it changed, else "affected" when anything
 // inside it depends on or is reached by the change.
 export function changeMarks(tree, cs) {
+  const rank = { changed: 3, moved: 2, affected: 1 };
   const marks = new Map();
   const up = (id, v) => {
     for (let t = tree.T.get(id); t; t = t.parent ? tree.T.get(t.parent) : null) {
-      const cur = marks.get(t.id);
-      if (cur === "changed" || cur === v) break; // ancestors are already marked at least this strongly
+      if ((rank[marks.get(t.id)] || 0) >= rank[v]) break; // ancestors are already marked at least this strongly
       marks.set(t.id, v);
     }
   };
-  for (const id of Object.keys(cs?.changed || {})) up(id, "changed");
+  for (const [id, how] of Object.entries(cs?.changed || {})) up(id, how === "moved" ? "moved" : "changed");
   for (const id of [...Object.keys(cs?.upstream || {}), ...Object.keys(cs?.downstream || {})]) up(id, "affected");
   return marks;
 }

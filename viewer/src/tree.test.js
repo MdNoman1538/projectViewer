@@ -132,3 +132,15 @@ test("change marks: changed blocks and every block containing them; affected one
   assert.equal(marks.get("file:src/api.py"), "affected");
   assert.equal(marks.get("dir:tests"), undefined);
 });
+
+test("change marks: moved is its own mark, weaker than changed, stronger than affected", () => {
+  const { tree } = setup();
+  const marks = changeMarks(tree, {
+    changed: { "file:src/shop/tax.py": "moved", "py:src.shop.tax.rate": "moved", "py:src.shop.cart.Cart.total": "modified" },
+    upstream: { "py:src.shop.tax.rate": 1 },
+    downstream: {},
+  });
+  assert.equal(marks.get("file:src/shop/tax.py"), "moved");
+  assert.equal(marks.get("file:src/shop/cart.py"), "changed");
+  assert.equal(marks.get("dir:src/shop"), "changed");
+});

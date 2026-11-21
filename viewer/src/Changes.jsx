@@ -3,9 +3,10 @@ import { useEffect, useState } from "react";
 
 const CODE = (id) => id.startsWith("py:") || id.startsWith("endpoint:");
 const label = (n) => (n.kind === "script" ? "top-level code" : n.kind === "function" ? `${n.name}()` : n.name);
-const HOW = { new: "new", modified: "changed", contains: "changed inside" };
+const HOW = { new: "new", modified: "changed", contains: "changed inside", moved: "moved" };
 
-export const changedCode = (cs) => Object.keys(cs?.changed || {}).filter(CODE);
+export const changedCode = (cs) => Object.keys(cs?.changed || {}).filter((id) => CODE(id) && cs.changed[id] !== "moved");
+const movedCode = (cs) => Object.keys(cs?.moved || {}).filter(CODE);
 
 export function notesFor(cs, id) {
   return (cs?.notes || []).filter((n) => n.node === id).map((n) => n.text);
@@ -16,7 +17,11 @@ export function tourSteps(cs, ix) {
   const nodes = changedCode(cs)
     .map((id) => ix.byId.get(id))
     .filter((n) => n && !(n.kind === "class" && cs.changed[n.id] === "contains"));
-  const steps = nodes.length ? nodes : Object.keys(cs?.changed || {}).map((id) => ix.byId.get(id)).filter((n) => n?.kind === "file");
+  const files = Object.entries(cs?.changed || {})
+    .filter(([, how]) => how !== "moved")
+    .map(([id]) => ix.byId.get(id))
+    .filter((n) => n?.kind === "file");
+  const steps = nodes.length ? nodes : files;
   return steps.sort((a, b) => (a.file || "").localeCompare(b.file || "") || (a.line || 0) - (b.line || 0)).map((n) => n.id);
 }
 
@@ -112,7 +117,11 @@ export function ChangeSummary({ cs, ix, onGo, onShow }) {
     .filter((l) => !/^(Co-Authored-By|Signed-off-by):/i.test(l)) // git bookkeeping, not explanation
     .join("\n")
     .split(/\nChanges:\s*\n/)[0]
-    .trim();
+    .trim()
+    .split(/\n\s*\n/) // commit bodies are wrapped at ~72 columns: re-join lines within a paragraph
+    .map((para) => para.replace(/\s*\n\s*/g, " "))
+    .join("\n\n");
+  const moved = movedCode(cs).map((id) => ix.byId.get(id)).filter(Boolean);
   const unattached = (cs.notes || []).filter((n) => !n.node);
   return (
     <div className="change-summary">
@@ -145,6 +154,14 @@ export function ChangeSummary({ cs, ix, onGo, onShow }) {
             </td>
             <td>{reached}</td>
           </tr>
+          {moved.length > 0 && (
+            <tr>
+              <td>
+                <span className="swatch purple" /> Moved
+              </td>
+              <td>{moved.length}</td>
+            </tr>
+          )}
           {cs.removed?.length > 0 && (
             <tr>
               <td>Removed</td>
@@ -173,6 +190,28 @@ export function ChangeSummary({ cs, ix, onGo, onShow }) {
           </li>
         ))}
       </ul>
+      {moved.length > 0 && (
+        <>
+          <h4>
+            Moved <small>{moved.length}</small>
+          </h4>
+          <ul className="links">
+            {moved.map((n) => (
+              <li key={n.id}>
+                <button type="button" className="linkish" onClick={() => onGo(n.id)}>
+                  {label(n)}
+                </button>
+                <small className="muted"> to {n.file}</small>
+                {notesFor(cs, n.id).map((t) => (
+                  <div key={t} className="note">
+                    {t}
+                  </div>
+                ))}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       {unattached.length > 0 && (
         <>
           <h4>Other notes</h4>
