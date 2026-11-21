@@ -12,7 +12,12 @@ Make a codebase's architecture, and the impact of each change, visible at a glan
 |---|---|---|---|
 | 1 | **Python cartographer** | `projectviewer map <repo>` → a world (packages, files, classes, functions, imports, calls, FastAPI endpoints, SQL tables, tests), incremental and cached | Correct on tested fixtures and on a real project checked by hand; measured speed |
 | 2 | **Viewer** | v5's React + deck.gl viewer, moved over: bank, AI-review and people/roles parts removed; layout computed from the package structure; click opens the code in VS Code | Explore a real project's map in the browser |
-| 3 | **History** | A world per commit (built incrementally) + diffs (v5's `world_diff`) + a timeline slider | Replay a project from its first commit |
+| 3 | **Changes** | For the live working copy, any commit, and any GitHub issue (via `Closes #N` / `Refs #N`):
+- changed blocks (red) and affected blocks (orange, via v5's `world_diff`)
+- the diff ("how")
+- **change notes** that explain each change, written in the commit message (`path::symbol: note`) by whoever made it, human or AI
+
+Plus a guided **Show** tour through a change, and a timeline slider | See exactly what changed, where, why and what it affects |
 | 4 | **Service + recorder** | Background service (launchd), `subscribe` / `unsubscribe`, reflog + file-watcher + Claude Code hook events, SQLite event log, live updates (Server-Sent Events) | AI vs human changes appear live with their prompts |
 | 5 | **PR view** | GitHub PRs + CI status as overlays; `/code-review` findings placed on the map, with right/wrong marks | Review a real PR from the map |
 | 6 | **Summaries** (optional) | Local Qwen summaries of sessions and days; answers to "what changed in X?" | Summaries checked against the recorded facts |

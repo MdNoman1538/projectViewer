@@ -13,7 +13,7 @@
 | CLI | `src/projectviewer/cli.py` | `projectviewer map <repo> [-o out.world.json] [--no-cache]` |
 | Tests | `tests/` | 34 Python tests (cartographer + server) on small made-up fixture projects |
 | Server | `src/projectviewer/server.py` | `projectviewer serve <repo>`: world API (gzip, ETag), live version fingerprint, source access limited to the repo's analysed files, static viewer; binds to 127.0.0.1 |
-| Viewer | `viewer/` | React + deck.gl: 2.5D city or 2D treemap, lenses (Architecture, Tests, Data, API), selection with callers/callees and source, search, live updates, open in VS Code, shareable URL state. 10 unit tests for layout/model logic; built in CI. |
+| Viewer | `viewer/` | React + deck.gl, **one folder level at a time** (ADR-0006): blocks = folders/files/classes/functions, size and height = number of functions, 2.5D city or 2D map, lenses (Architecture, Tests, Data, API), selection with callers/callees and source, search, live updates, open in VS Code, shareable URL state. 13 unit tests for tree/layout/model logic; built in CI. |
 
 ## Accuracy
 

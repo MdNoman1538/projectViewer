@@ -1,6 +1,6 @@
 # ADR-0005: New viewer, a nested treemap shown as a 2.5D city (not a port of the v5 viewer)
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0006 (one level at a time, folder blocks)
 - **Date:** 2026-11-21
 
 ## Context

@@ -86,3 +86,15 @@ Phase 2: move the v5 viewer over, adapt it to `project-world/1`, compute the lay
   - The tilted camera also needed framing by projecting the city's corners through it, not by the flat-map formula.
 - **The Tests lens exposed an analyser gap.** API handlers show "no test reaches them", although `test_api.py` tests them over HTTP (`client.get("/api/…")`). The analyser can't see that a URL string leads to an endpoint. Next fix: match test HTTP calls to endpoints by method and path.
 - **Shareable URL state** (`#lens=tests&sel=…&view=2d`) was added for testing, and is useful on its own.
+
+## The viewer redesigned after the owner used it
+
+**Feedback:** "the previous one showed the modules only… this shows all the functions and everything… clumsy and bad to manoeuvre and understand." Plus: blocks should be the real folders, `src` isn't a block, size by number of functions.
+
+What changed (ADR-0006 supersedes the "everything at once" part of ADR-0005):
+- **One folder level at a time**, with drill-down (click, click again), breadcrumb and Backspace/Esc to go up.
+- **`src/` is transparent:** the top level shows the actual modules.
+- **Size and height = number of functions;** lines of code only when every block on a level is a single function.
+- **Dependencies summed between the blocks on screen;** in the panel, outside dependencies are named by their top-level module.
+
+*Lesson:* we drew everything because we *could*. The useful question is what a person needs to see at each step. The screenshots looked "correct" both times; only using the tool showed the first design didn't work.
