@@ -37,21 +37,52 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("-o", "--output", type=Path, help="write the world here (default: stdout)")
     m.add_argument("--no-cache", action="store_true", help="analyse every file again")
     m.add_argument("--cache-dir", type=Path, help="cache location (default: ~/.cache/projectviewer)")
-    s = sub.add_parser("serve", help="Open a live map of a repository in the browser")
-    s.add_argument("root", type=Path, help="repository to view")
+    s = sub.add_parser("serve", help="Open the live viewer for your subscribed projects (and any given here)")
+    s.add_argument("roots", type=Path, nargs="*", help="repositories to add before serving")
     s.add_argument("--port", type=int, default=8765)
     s.add_argument("--open", action="store_true", help="open the browser")
     s.add_argument("--cache-dir", type=Path, help="cache location (default: ~/.cache/projectviewer)")
+    a = sub.add_parser("add", help="Subscribe a repository (shown in the viewer)")
+    a.add_argument("root", type=Path)
+    r = sub.add_parser("remove", help="Unsubscribe a repository (by id or path)")
+    r.add_argument("project")
+    sub.add_parser("list", help="List subscribed repositories")
     args = ap.parse_args(argv)
 
+    if args.cmd in ("add", "remove", "list"):
+        from projectviewer import registry
+
+        if args.cmd == "add":
+            if not args.root.is_dir():
+                ap.error(f"not a directory: {args.root}")
+            p = registry.add(args.root)
+            print(f"subscribed: {p['id']}  {p['path']}")
+        elif args.cmd == "remove":
+            print("removed" if registry.remove(args.project) else f"not subscribed: {args.project}")
+        for p in registry.load() if args.cmd == "list" else []:
+            print(f"{p['id']:24s} {p['path']}")
+        return 0
+
     if args.cmd == "serve":
+        from projectviewer import registry
         from projectviewer.server import make_server
 
-        if not args.root.is_dir():
-            ap.error(f"not a directory: {args.root}")
-        srv = make_server(args.root, port=args.port, cache=Cache(args.cache_dir))
+        for root in args.roots:
+            if not root.is_dir():
+                ap.error(f"not a directory: {root}")
+            registry.add(root)
+        subscribed = registry.load()
+        if not subscribed:
+            ap.error("no projects yet: run `projectviewer add <repo>` or `projectviewer serve <repo>`")
+        srv = make_server(
+            [Path(p["path"]) for p in subscribed],
+            port=args.port,
+            cache=Cache(args.cache_dir),
+            ids=[p["id"] for p in subscribed],
+        )
         url = f"http://127.0.0.1:{srv.server_address[1]}"
-        print(f"projectViewer: {args.root.resolve()} -> {url}   (Ctrl+C to stop)", file=sys.stderr)
+        names = ", ".join(p["id"] for p in subscribed)
+        print(f"projectViewer: {names} -> {url}   (Ctrl+C to stop)", file=sys.stderr)
         if args.open:
             import webbrowser
 

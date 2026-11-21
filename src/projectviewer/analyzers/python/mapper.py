@@ -51,16 +51,41 @@ def _extract_job(job: tuple[str, bytes]) -> dict:
     return extract(rel, data.decode("utf-8", errors="replace"))
 
 
-def map_repo(root: Path, cache: Cache | None = None, workers: int | None = None) -> dict:
-    """workers: processes for parsing cache misses. None = automatic (parallel only when there are
-    enough misses to beat process start-up cost); 1 = always serial."""
-    root = Path(root).resolve()
-    t0 = time.perf_counter()
-    paths = discover(root)
-    files: list[dict | None] = [None] * len(paths)
+def git_files(root: Path, rev: str) -> list[tuple[str, bytes]]:
+    """(path, content) of the Python files in a commit, read from git objects: the working tree is
+    never touched. One `git cat-file --batch` process for all files."""
+    listed = _git(root, "ls-tree", "-r", "-z", "--name-only", rev)
+    if listed is None:
+        return []
+    paths = sorted(p for p in listed.split("\0") if p and _keep(p))
+    if not paths:
+        return []
+    proc = subprocess.run(
+        ["git", "-C", str(root), "cat-file", "--batch"],
+        input="".join(f"{rev}:{p}\n" for p in paths).encode(),
+        capture_output=True,
+        check=True,
+    )
+    out, pos, items = proc.stdout, 0, []
+    for p in paths:
+        nl = out.index(b"\n", pos)
+        header = out[pos:nl].split()
+        pos = nl + 1
+        if len(header) < 3 or header[1] != b"blob":  # "missing" or not a file
+            continue
+        size = int(header[2])
+        items.append((p, out[pos : pos + size]))
+        pos += size + 1  # content is followed by a newline
+    return items
+
+
+def _analyse(
+    items: list[tuple[str, bytes]], cache: Cache | None, workers: int | None
+) -> tuple[list[dict], int]:
+    """Pass 1 for (path, bytes) items: from the cache when possible, parsed (maybe in parallel) otherwise."""
+    files: list[dict | None] = [None] * len(items)
     todo: list[tuple[int, str, bytes, str | None]] = []  # (index, path, bytes, cache key)
-    for i, rel in enumerate(paths):
-        data = (root / rel).read_bytes()
+    for i, (rel, data) in enumerate(items):
         key = Cache.key(EXTRACTOR_VERSION, rel, data) if cache else None
         facts = cache.get(key) if cache else None
         if facts is None:
@@ -84,26 +109,46 @@ def map_repo(root: Path, cache: Cache | None = None, workers: int | None = None)
         files[i] = facts
         if cache:
             cache.put(key, facts)
-    hits, misses = len(paths) - len(todo), len(todo)
+    return files, len(todo)
+
+
+def _world(root: Path, items, cache, workers, commit, dirty) -> dict:
+    t0 = time.perf_counter()
+    files, misses = _analyse(items, cache, workers)
     t1 = time.perf_counter()
     nodes, edges, stats = build_world(files)
     t2 = time.perf_counter()
-
-    head = _git(root, "rev-parse", "HEAD")
-    status = _git(root, "status", "--porcelain")
     stats.update(
         files={"total": len(files), "errors": sum(1 for f in files if f["error"])},
-        cache={"enabled": cache is not None, "hits": hits, "misses": misses},
+        cache={"enabled": cache is not None, "hits": len(files) - misses, "misses": misses},
         seconds={"extract": round(t1 - t0, 4), "resolve": round(t2 - t1, 4), "total": round(t2 - t0, 4)},
     )
     return {
         "schema": "project-world/1",
         "generated_by": f"projectviewer {__version__} (python analyser v{EXTRACTOR_VERSION})",
         "repo": str(root),
-        "commit": head.strip() if head else None,
-        "dirty": bool(status.strip()) if status is not None else None,
+        "commit": commit,
+        "dirty": dirty,
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "nodes": nodes,
         "edges": edges,
         "stats": stats,
     }
+
+
+def map_repo(root: Path, cache: Cache | None = None, workers: int | None = None) -> dict:
+    """The working tree (including uncommitted and untracked files). workers: processes for parsing
+    cache misses. None = automatic (parallel only when there are enough misses); 1 = always serial."""
+    root = Path(root).resolve()
+    items = [(rel, (root / rel).read_bytes()) for rel in discover(root)]
+    head = _git(root, "rev-parse", "HEAD")
+    status = _git(root, "status", "--porcelain")
+    dirty = bool(status.strip()) if status is not None else None
+    return _world(root, items, cache, workers, head.strip() if head else None, dirty)
+
+
+def map_revision(root: Path, rev: str, cache: Cache | None = None, workers: int | None = None) -> dict:
+    """A commit, read from git objects (the working tree is not touched)."""
+    root = Path(root).resolve()
+    sha = _git(root, "rev-parse", rev)
+    return _world(root, git_files(root, rev), cache, workers, sha.strip() if sha else None, False)
