@@ -1,6 +1,6 @@
 # Roadmap
 
-**Created:** 2026-11-21
+**Created:** 2026-11-21 · **Progress (2026-11-21):** phases 1–2 done; phase 3 done except GitHub issues and the timeline; phase 4 partly done (multi-project, subscribe, follow activity; the background service and Claude Code hook are still to come).
 
 ## Goal
 
@@ -11,8 +11,8 @@ Make a codebase's architecture, and the impact of each change, visible at a glan
 | # | Phase | Delivers | Exit criteria |
 |---|---|---|---|
 | 1 | **Python cartographer** | `projectviewer map <repo>` → a world (packages, files, classes, functions, imports, calls, FastAPI endpoints, SQL tables, tests), incremental and cached | Correct on tested fixtures and on a real project checked by hand; measured speed |
-| 2 | **Viewer** | v5's React + deck.gl viewer, moved over: bank, AI-review and people/roles parts removed; layout computed from the package structure; click opens the code in VS Code | Explore a real project's map in the browser |
-| 3 | **History** | A world per commit (built incrementally) + diffs (v5's `world_diff`) + a timeline slider | Replay a project from its first commit |
+| 2 | **Viewer** | New viewer (ADR-0005/0006): the project's folders as blocks, one level at a time, size and height by number of functions, 2.5D city or 2D map, lenses (architecture, tests, data, API), source and *Open in VS Code*, live updates | Explore a real project's architecture in the browser |
+| 3 | **Changes** | For the live working copy, any commit and any GitHub issue (via `Closes #N` / `Refs #N`): changed blocks (red), affected blocks (orange, via v5's `world_diff`), the diff ("how"), and **change notes** explaining each change, written in the commit message (`path::symbol: note`) by whoever made it, human or AI. Plus a guided **Show** tour through a change and a timeline slider. | See exactly what changed, where, why and what it affects |
 | 4 | **Service + recorder** | Background service (launchd), `subscribe` / `unsubscribe`, reflog + file-watcher + Claude Code hook events, SQLite event log, live updates (Server-Sent Events) | AI vs human changes appear live with their prompts |
 | 5 | **PR view** | GitHub PRs + CI status as overlays; `/code-review` findings placed on the map, with right/wrong marks | Review a real PR from the map |
 | 6 | **Summaries** (optional) | Local Qwen summaries of sessions and days; answers to "what changed in X?" | Summaries checked against the recorded facts |

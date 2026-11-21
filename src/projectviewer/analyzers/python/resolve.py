@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import builtins
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 
@@ -19,6 +20,11 @@ PROVEN, INFERRED, PATTERN = "proven", "inferred", "pattern"
 _RANK = {PROVEN: 0, INFERRED: 1, PATTERN: 2}
 _BUILTINS = set(dir(builtins))
 _MAX_DEPTH = 12
+# method names of builtin containers: an unresolved `x.get()` is far more likely dict.get than a project
+# function that happens to be called `get`, so such names are not counted as possible missed links
+_CONTAINER_METHODS = (
+    set(dir(dict)) | set(dir(list)) | set(dir(str)) | set(dir(set)) | set(dir(tuple)) | set(dir(bytes))
+)
 _TYPING_NOISE = {"None", "Optional", "Union", "typing.Optional", "typing.Union"}
 
 Thing = tuple[str, str]  # (kind, qualified name): kind in module | class | function | instance
@@ -45,13 +51,14 @@ class Ctx:
     cls: str | None = None  # qualified name of the enclosing class, for `self`
     params: frozenset = frozenset()  # unannotated parameters: they shadow globals; may be pytest fixtures
     path: str | None = None  # file path, to find conftest.py fixtures
+    locals: frozenset = frozenset()  # functions/classes defined inside this function
 
 
 # A resolution result is one of:
 #   (thing, certainty)  a project module / class / function / instance-of-a-project-class
 #   EXTERNAL | BUILTIN  a library or builtin object (counted, not drawn)
 #   None                unknown (counted as unresolved)
-EXTERNAL, BUILTIN = "external", "builtin"
+EXTERNAL, BUILTIN, LOCAL = "external", "builtin", "local"  # LOCAL: a function defined inside the caller
 
 
 class Resolver:
@@ -187,6 +194,8 @@ class Resolver:
         """Resolve the first token of a chain, following Python's lookup order."""
         if name == "self" and ctx.cls:
             return ("instance", ctx.cls), PROVEN
+        if name in ctx.locals:
+            return LOCAL
         if name in ctx.vars:
             return self._instance(self.type_of(ctx.vars[name], ctx, depth + 1))
         if name in ctx.params:  # parameters shadow globals; unannotated ones are known only as fixtures
@@ -242,10 +251,12 @@ class Resolver:
         """Project class (qualified name), EXTERNAL, BUILTIN, or None."""
         if depth > _MAX_DEPTH or not spec:
             return None
+        if spec.get("builtin"):
+            return BUILTIN
         if "call" in spec:
             r = self.resolve_chain(spec["call"], ctx, depth + 1)
             if not isinstance(r, tuple):
-                return r
+                return r if r in (EXTERNAL, BUILTIN) else None
             res = self.call_result(r[0], depth + 1)
             if not isinstance(res, tuple):
                 return res
@@ -326,6 +337,7 @@ def build_world(files: list[dict]) -> tuple[list[dict], list[dict], dict]:
                 "count": 1,
             }
 
+    project_names = {fn["name"] for f in files for fn in f["functions"]}
     groups = sorted({group_of(f["path"]) for f in files})
     for g in groups:
         node(f"group:{g}", "group", g, None, g)
@@ -411,15 +423,19 @@ def build_world(files: list[dict]) -> tuple[list[dict], list[dict], dict]:
                 f"{mod}.{fn['cls']}" if fn["cls"] else None,
                 frozenset(p["name"] for p in fn["params"] if not p["ann"]),
                 path,
+                frozenset(fn.get("local_defs", [])),
             )
             for call in fn["calls"]:
                 calls["total"] += 1
                 r = R.resolve_chain(call["chain"], ctx, 0)
-                if r in (EXTERNAL, BUILTIN):
+                if r in (EXTERNAL, BUILTIN, LOCAL):
                     calls[r] += 1
                     continue
                 if r is None or r[0][0] not in ("function", "class"):
                     calls["unresolved"] += 1
+                    name = next((t for t in reversed(call["chain"]) if t != "()"), "")
+                    if name in project_names and name not in _CONTAINER_METHODS:
+                        calls["unresolved_named"] += 1  # could be a project call we failed to link
                     continue
                 (kind, q), cert = r
                 calls["resolved"] += 1
@@ -454,6 +470,28 @@ def build_world(files: list[dict]) -> tuple[list[dict], list[dict], dict]:
             cert = PROVEN if origin.startswith("fastapi.") else PATTERN
             edge(eid, f"py:{mod}.{rt['function']}", "routes", cert, rt["line"])
 
+    # HTTP requests (typically tests using a test client) -> the endpoint they hit: method + path match
+    endpoints = []
+    for f in files:
+        for rt in f["routes"]:
+            rx = "/".join(
+                "[^/]+" if seg.startswith("{") and seg.endswith("}") else re.escape(seg)
+                for seg in rt["path"].split("/")
+            )
+            endpoints.append((rt["verb"], re.compile(f"^{rx}/?$"), f"endpoint:{rt['verb']} {rt['path']}"))
+    http = Counter()
+    for f in files:
+        for fn in f["functions"] if not f["error"] else []:
+            for req in fn.get("http", []):
+                http["total"] += 1
+                hit = next(
+                    (eid for verb, rx, eid in endpoints if verb == req["verb"] and rx.match(req["path"])),
+                    None,
+                )
+                if hit:
+                    http["matched"] += 1
+                    edge(f"py:{f['module']}.{fn['qualname']}", hit, "requests", PATTERN, req["line"])
+
     if tables:
         node("group:(data)", "group", "(data)", None, "(data)")
         for t in sorted(tables):
@@ -462,7 +500,11 @@ def build_world(files: list[dict]) -> tuple[list[dict], list[dict], dict]:
     stats = {
         "nodes": dict(Counter(n["kind"] for n in nodes)),
         "edges": dict(Counter(e["kind"] for e in edges.values())),
-        "calls": {k: calls.get(k, 0) for k in ("total", "resolved", "external", "builtin", "unresolved")},
+        "calls": {
+            k: calls.get(k, 0)
+            for k in ("total", "resolved", "local", "external", "builtin", "unresolved", "unresolved_named")
+        },
+        "http": {"total": http.get("total", 0), "matched": http.get("matched", 0)},
     }
     return nodes, list(edges.values()), stats
 

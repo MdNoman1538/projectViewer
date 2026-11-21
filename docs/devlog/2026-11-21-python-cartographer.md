@@ -73,3 +73,51 @@ The repository is public under CC BY-NC 4.0: free for non-commercial use, commer
 ## Next
 
 Phase 2: move the v5 viewer over, adapt it to `project-world/1`, compute the layout from groups, and add click-to-open-in-VS-Code. The 31 MB pandas world shows that loading on demand is needed from the start.
+
+## Later the same day: the viewer (Phase 2)
+
+- **The plan changed after reading the code.** v5's viewer was built around a hard-coded bank layout. A new viewer (nested treemap) was simpler and works for any project. See ADR-0005.
+- **2.5D was added on the owner's request.** Packages are slabs, files sit on them, classes on files, and functions are towers whose height grows with their size. The camera copies v5's (tilted orthographic orbit, 35°).
+- **We checked it by looking at it.** Headless Chrome screenshots after every change. They found four real problems we then fixed:
+  - the map was framed with a guessed size before the real size was measured
+  - package and file labels were invisible at overview zoom
+  - "<module>" labels were meaningless; they now say "top-level code"
+  - labels piled on top of each other; fixed with screen-space collision avoidance
+  - The tilted camera also needed framing by projecting the city's corners through it, not by the flat-map formula.
+- **The Tests lens exposed an analyser gap.** API handlers show "no test reaches them", although `test_api.py` tests them over HTTP (`client.get("/api/…")`). The analyser can't see that a URL string leads to an endpoint. Next fix: match test HTTP calls to endpoints by method and path.
+- **Shareable URL state** (`#lens=tests&sel=…&view=2d`) was added for testing, and is useful on its own.
+
+## The viewer redesigned after the owner used it
+
+**Feedback:** "the previous one showed the modules only… this shows all the functions and everything… clumsy and bad to manoeuvre and understand." Plus: blocks should be the real folders, `src` isn't a block, size by number of functions.
+
+What changed (ADR-0006 supersedes the "everything at once" part of ADR-0005):
+- **One folder level at a time**, with drill-down (click, click again), breadcrumb and Backspace/Esc to go up.
+- **`src/` is transparent:** the top level shows the actual modules.
+- **Size and height = number of functions;** lines of code only when every block on a level is a single function.
+- **Dependencies summed between the blocks on screen;** in the panel, outside dependencies are named by their top-level module.
+
+*Lesson:* we drew everything because we *could*. The useful question is what a person needs to see at each step. The screenshots looked "correct" both times; only using the tool showed the first design didn't work.
+
+## Changes, notes, several projects (Phase 3 and part of 4)
+
+The owner's goals: see *what* changed, *where*, *why* and *what it affects*, for live edits, commits and issues; watch an AI work live, as a "window"; several projects in one viewer.
+
+- **Change sets** (`changes.py`, v5's `world_diff` ported):
+  - any commit is mapped straight from git objects, so the working tree is never touched
+  - compared with its parent: changed / new / removed, then impact up to 4 steps
+  - **change notes** come from a `Changes:` section in commit messages, so the author, human or AI, explains each change on the block it touched
+- **The live window:** "Live: uncommitted changes" re-computes on every save. That's what makes AI work visible as it happens.
+- **Several projects:** a registry plus `add/remove/list`, a project switcher, and **follow activity** (it jumps to the project whose files are changing).
+- **Moves:** viewing a real refactor showed "23 removed + new" for a plain folder move. git's rename detection (`-M`) now reports them as **moved** (purple); a move alone never counts as impact.
+- **A code review of the change code found 6 real issues**, 3 of them regressions from the move feature:
+  - a moved file's diff showed the whole file as new
+  - an edited class in a moved file stopped seeding impact
+  - the diff for a pure move could 404
+  - plain `mv` wasn't detected in live mode
+  - `HEAD` change sets were cached forever
+  - a file name with a space broke live mode
+
+  Each got a failing test, then a fix. *Lesson:* the review was cheap and caught what our own tests missed, because the tests only covered the cases we'd thought of.
+
+**Still open:** GitHub issues (the commits already carry `Refs #N`); the timeline; a Claude Code hook for "follow the AI" (which function, which prompt); the background service (launchd).
