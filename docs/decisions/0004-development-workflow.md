@@ -1,6 +1,6 @@
 # ADR-0004: Development workflow: GitHub Flow, small PRs, test-first fixes, human review of AI-written code
 
-- **Status:** Accepted
+- **Status:** Accepted; merge strategy superseded by ADR-0007 (merge commits)
 - **Date:** 2026-11-21
 
 ## Context
