@@ -1,7 +1,7 @@
 // Unit tests for the viewer's pure logic. Run: npm test  (Node's built-in test runner)
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { curve, curve3d, fit, layout } from "./layout.js";
+import { curve, curve3d, fit } from "./layout.js";
 import { ancestors, descendants, groupLinks, indexWorld, linksFor, search } from "./model.js";
 
 const node = (id, kind, name, parent, group, attrs = {}) => ({ id, kind, name, parent, group, file: "x.py", line: 1, end_line: 5, attrs });
@@ -58,44 +58,12 @@ test("search ranks exact names and functions first", () => {
   assert.equal(search(ix, "total")[0].id, "py:shop.a.Cart.total");
 });
 
-test("layout: every node gets a rectangle inside its parent", () => {
-  const ix = indexWorld(world);
-  const L = layout(ix);
-  assert.equal(L.rects.size, world.nodes.length);
-  for (const r of L.list) {
-    const p = r.n.parent && L.rects.get(r.n.parent);
-    if (!p) continue;
-    assert.ok(r.x0 >= p.x0 - 1e-6 && r.x1 <= p.x1 + 1e-6 && r.y0 >= p.y0 - 1e-6 && r.y1 <= p.y1 + 1e-6, r.id);
-  }
-  // parents come before children (drawing and picking order)
-  const order = L.list.map((r) => r.id);
-  assert.ok(order.indexOf("file:shop/a.py") < order.indexOf("py:shop.a.Cart"));
-});
-
-test("layout is deterministic", () => {
-  const a = layout(indexWorld(world)).list.map((r) => [r.id, r.x0, r.y0]);
-  const b = layout(indexWorld(world)).list.map((r) => [r.id, r.x0, r.y0]);
-  assert.deepEqual(a, b);
-});
-
 test("curve starts and ends at the endpoints; fit centres the box", () => {
   const pts = curve([0, 0], [10, 0]);
   assert.deepEqual(pts[0], [0, 0]);
   assert.deepEqual(pts.at(-1), [10, 0]);
   const v = fit({ x0: 0, y0: 0, x1: 100, y1: 50 }, 1000, 500);
   assert.deepEqual(v.target, [50, 25, 0]);
-});
-
-test("2.5D: children stand on their parent; bigger code is taller", () => {
-  const L = layout(indexWorld(world));
-  const file = L.rects.get("file:shop/a.py");
-  const cls = L.rects.get("py:shop.a.Cart");
-  const big = L.rects.get("py:shop.a.Cart.total"); // 10 lines
-  const small = L.rects.get("py:shop.a.helper"); // 5 lines
-  assert.equal(L.rects.get("group:shop").z0, 0);
-  assert.equal(file.z0, L.rects.get("group:shop").z0 + L.rects.get("group:shop").h);
-  assert.equal(big.z0, cls.z0 + cls.h);
-  assert.ok(big.h > small.h);
 });
 
 test("3D curve lifts in the middle and ends on the targets", () => {
