@@ -34,6 +34,18 @@ uv run projectviewer serve --open                 # http://127.0.0.1:8765
 - **Several projects:** a project switcher, and **follow activity** shows whichever project is changing.
 - **Inside VS Code:** run *Simple Browser: Show* and enter `http://127.0.0.1:8765`.
 
+**Watch the AI work (Claude Code):** add a hook to `~/.claude/settings.json` (all projects). Use the full path to `projectviewer` (e.g. `~/Projects/projectViewer/.venv/bin/projectviewer`):
+
+```json
+{ "hooks": {
+  "PostToolUse":      [{ "matcher": "Edit|Write|MultiEdit", "hooks": [{ "type": "command", "command": "/path/to/projectviewer hook", "timeout": 5 }] }],
+  "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "/path/to/projectviewer hook", "timeout": 5 }] }],
+  "Stop":             [{ "hooks": [{ "type": "command", "command": "/path/to/projectviewer hook", "timeout": 5 }] }]
+} }
+```
+
+The viewer then shows an **AI activity** feed, and with **follow** on it flies to each file the AI edits, with the live changes in red. The hook never blocks or slows Claude: about 0.1 s, it ignores errors, and always exits 0. Prompt text is sent only with `hook --prompts`, and stays on your machine.
+
 **Change notes:** add a `Changes:` section to commit messages; the viewer attaches each line to the code it names:
 
 ```

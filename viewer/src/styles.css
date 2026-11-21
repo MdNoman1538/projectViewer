@@ -520,3 +520,35 @@ button.primary {
   height: 10px;
   width: 10px;
 }
+.activity {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 360px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(20, 29, 44, 0.94);
+  border: 1px solid var(--line);
+  z-index: 4;
+}
+.activity-head {
+  color: var(--dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+.activity-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12.5px;
+}
+.activity-row small {
+  color: var(--dim);
+  white-space: nowrap;
+}
+.activity-row.fresh {
+  color: #ffd0d0;
+}

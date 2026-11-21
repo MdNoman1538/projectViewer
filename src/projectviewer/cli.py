@@ -30,6 +30,11 @@ def _summary(world: dict) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["hook"]:  # Claude Code hook: fast path, never fails (see hook.py)
+        from projectviewer.hook import main as hook_main
+
+        return hook_main(argv[1:])
     ap = argparse.ArgumentParser(prog="projectviewer", description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
     m = sub.add_parser("map", help="Map a repository into a project-world/1 JSON document")
@@ -47,6 +52,9 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("remove", help="Unsubscribe a repository (by id or path)")
     r.add_argument("project")
     sub.add_parser("list", help="List subscribed repositories")
+    sub.add_parser(
+        "hook", help="Claude Code hook: report AI activity to the viewer (reads the event on stdin)"
+    )
     args = ap.parse_args(argv)
 
     if args.cmd in ("add", "remove", "list"):
