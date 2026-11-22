@@ -9,7 +9,7 @@
 - GET /api/p/<id>/diff?ref=…&file=<path>    -> {"diff"} unified diff of one file in that change set
 - GET /api/p/<id>/events?since=<ms>         -> recent AI activity (from the Claude Code hook)
 - POST /api/events                          <- `projectviewer hook` (needs header X-ProjectViewer: 1)
-- everything else                           -> the built viewer (viewer/dist), single-page-app fallback
+- everything else                           -> the built viewer (src/projectviewer/web), single-page-app fallback
 
 Binds to 127.0.0.1 only: nothing is reachable from other machines. The browser polls; the Phase 4
 service will push changes instead (Server-Sent Events).
@@ -36,7 +36,7 @@ from projectviewer.cache import Cache
 from projectviewer.changes import change_set, commit_list, file_diff
 from projectviewer.registry import unique_id
 
-DEFAULT_WEB_DIR = Path(__file__).resolve().parents[2] / "viewer" / "dist"
+DEFAULT_WEB_DIR = Path(__file__).resolve().parent / "web"  # the built viewer, shipped inside the package
 MAX_SOURCE_BYTES = 2_000_000
 MAX_EVENT_BYTES = 16_384
 EVENTS_KEPT = 200

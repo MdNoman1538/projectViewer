@@ -6,15 +6,20 @@ repos:
     hooks:
       - id: no-commit-to-branch        # GitHub Flow: never commit to main locally
         args: [--branch, main]
+      # The built viewer (src/projectviewer/web) is generated: it ships inside the package (ADR-0008)
+      # and CI checks it matches a fresh build, so hooks must not "fix" or reject it.
       - id: check-added-large-files
         args: [--maxkb=1024]
+        exclude: ^src/projectviewer/web/
       - id: detect-private-key
       - id: check-merge-conflict
       - id: check-yaml
       - id: check-toml
       - id: end-of-file-fixer
+        exclude: ^src/projectviewer/web/
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
+        exclude: ^src/projectviewer/web/
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.17.6

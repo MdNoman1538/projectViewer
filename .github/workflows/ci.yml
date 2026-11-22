@@ -62,3 +62,9 @@ jobs:
         run: npm test
       - name: Production build
         run: npm run build
+      # The built viewer ships inside the Python package (src/projectviewer/web), so installs need
+      # no Node.js. It must match the source exactly: a stale bundle would ship old behaviour.
+      - name: Shipped viewer matches the source
+        run: |
+          git status --porcelain -- ../src/projectviewer/web
+          test -z "$(git status --porcelain -- ../src/projectviewer/web)" || { echo "src/projectviewer/web is stale: run 'npm run build' in viewer/ and commit the result"; exit 1; }

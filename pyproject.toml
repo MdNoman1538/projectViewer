@@ -1,6 +1,6 @@
 [project]
 name = "projectviewer"
-version = "0.1.0"
+version = "0.2.0"
 description = "A live, explorable map of a codebase that records how it is being built, by people and by AI."
 readme = "README.md"
 license = "CC-BY-NC-4.0"

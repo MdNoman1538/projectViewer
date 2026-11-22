@@ -6,5 +6,7 @@ export default defineConfig({
   plugins: [react()],
   base: "./",
   server: { proxy: { "/api": "http://127.0.0.1:8765" } },
-  build: { outDir: "dist", chunkSizeWarningLimit: 2000, sourcemap: false },
+  // The built viewer ships inside the Python package, so `uv tool install` needs no Node.js.
+  // CI rebuilds it and fails if the committed copy differs from the source.
+  build: { outDir: "../src/projectviewer/web", emptyOutDir: true, chunkSizeWarningLimit: 2000, sourcemap: false },
 });
