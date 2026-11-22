@@ -18,7 +18,7 @@ from __future__ import annotations
 import ast
 import re
 
-EXTRACTOR_VERSION = "3"  # bump whenever the facts change shape: invalidates cached results (ADR-0003)
+EXTRACTOR_VERSION = "4"  # bump whenever the facts change shape: invalidates cached results (ADR-0003)
 SCRIPT = "<module>"
 HTTP_VERBS = {"get", "post", "put", "delete", "patch", "head", "options"}
 
@@ -246,11 +246,27 @@ def _route(dec: ast.AST, fn_name: str) -> dict | None:
     return None
 
 
+def _param(a: ast.arg, default: ast.expr | None) -> dict:
+    p = {"name": a.arg, "ann": ast.unparse(a.annotation) if a.annotation else None}
+    if default is not None:
+        p["default"] = ast.unparse(default)
+    return p
+
+
 def _function(fn: ast.FunctionDef | ast.AsyncFunctionDef, cls: str | None) -> dict:
     args = fn.args
     params = []
-    for a in args.posonlyargs + args.args + args.kwonlyargs:
-        params.append({"name": a.arg, "ann": ast.unparse(a.annotation) if a.annotation else None})
+    positional = args.posonlyargs + args.args
+    # Defaults belong to the *last* positional parameters; keyword-only defaults line up one to one.
+    pos_defaults = [None] * (len(positional) - len(args.defaults)) + list(args.defaults)
+    for a, d in zip(positional, pos_defaults, strict=True):
+        params.append(_param(a, d))
+    if args.vararg:
+        params.append({**_param(args.vararg, None), "kind": "*args"})
+    for a, d in zip(args.kwonlyargs, args.kw_defaults, strict=True):
+        params.append({**_param(a, d), "kind": "keyword-only"})
+    if args.kwarg:
+        params.append({**_param(args.kwarg, None), "kind": "**kwargs"})
     facts = _body_facts(_without_docstring(fn.body))
     for p in params:  # annotated parameters are typed variables too
         if p["ann"] and p["name"] not in facts["vars"]:

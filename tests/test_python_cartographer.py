@@ -498,3 +498,25 @@ def test_unresolved_calls_that_could_be_project_calls_are_counted(world):
     c = w.world["stats"]["calls"]
     assert c["unresolved"] == 3
     assert c["unresolved_named"] == 1
+
+
+def test_parameters_record_defaults_and_kinds(world):
+    """The world tells a reader each parameter's default: often the value whose reason matters most."""
+    w = world(
+        {
+            "src/shop/db.py": """
+            def connect(path, mode='r', /, retries=3, *paths, read_only: bool = True, timeout=None, **opts) -> int:
+                return 1
+            """
+        }
+    )
+    fn = w.nodes["py:src.shop.db.connect"]
+    assert fn["attrs"]["params"] == [
+        {"name": "path", "ann": None},
+        {"name": "mode", "ann": None, "default": "'r'"},
+        {"name": "retries", "ann": None, "default": "3"},
+        {"name": "paths", "ann": None, "kind": "*args"},
+        {"name": "read_only", "ann": "bool", "default": "True", "kind": "keyword-only"},
+        {"name": "timeout", "ann": None, "default": "None", "kind": "keyword-only"},
+        {"name": "opts", "ann": None, "kind": "**kwargs"},
+    ]
