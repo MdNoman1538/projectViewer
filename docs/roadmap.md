@@ -1,6 +1,6 @@
 # Roadmap
 
-**Created:** 2026-11-21 · **Progress (2026-11-21):** phases 1–2 done; phase 3 done except GitHub issues and the timeline; phase 4 partly done (multi-project, subscribe, follow activity; the background service and Claude Code hook are still to come).
+**Created:** 2026-11-21 · **Progress (2026-11-23):** phases 1–2 done; phase 3 done except GitHub issues and the timeline; phase 4 partly done (multi-project, subscribe, follow activity, the Claude Code hook; the background service is still to come). **Agent-ready distribution** (plugin, `setup`/`doctor`, packaged viewer) is done (ADR-0008). Next big step after phase 4: **other languages**.
 
 ## Goal
 

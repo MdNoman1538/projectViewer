@@ -1,6 +1,16 @@
 # CLAUDE.md
 
-Instructions for AI coding agents in this repository. Humans: see [CONTRIBUTING.md](CONTRIBUTING.md).
+Instructions for AI coding agents **developing** projectViewer. Humans: see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+> **Asked to *use* projectViewer for another project?** This file isn't for that. Follow [plugin/skills/setup/SKILL.md](plugin/skills/setup/SKILL.md), then [plugin/skills/use/SKILL.md](plugin/skills/use/SKILL.md). projectViewer maps Python projects only.
+
+## Things that must stay true (tests enforce them)
+
+- **The hook can never block Claude:** every hook command (plugin and `setup --hook`) ends in `>/dev/null 2>&1 || true`; `hook.py` always exits 0.
+- **Users' settings are merged, never replaced;** broken settings files are refused and left untouched.
+- **Recording prompt text is opt-in** (`--prompts`), never a default.
+- **The shipped viewer (`src/projectviewer/web`) matches `viewer/` source;** rebuild with `npm run build` in `viewer/` and commit the result (CI checks it).
+- **The plugin's name matches its marketplace entry.**
 
 ## What this is
 
