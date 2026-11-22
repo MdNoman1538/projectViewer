@@ -1,0 +1,13 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      { "matcher": "Edit|Write|MultiEdit", "hooks": [{ "type": "command", "command": "projectviewer hook >/dev/null 2>&1 || true", "timeout": 5 }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "projectviewer hook >/dev/null 2>&1 || true", "timeout": 5 }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "projectviewer hook >/dev/null 2>&1 || true", "timeout": 5 }] }
+    ]
+  }
+}

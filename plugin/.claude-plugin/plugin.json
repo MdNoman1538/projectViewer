@@ -1,0 +1,11 @@
+{
+  "name": "projectviewer",
+  "displayName": "projectViewer",
+  "version": "0.2.0",
+  "description": "Set up and use projectViewer in any Python project: a live, explorable map of the codebase, the impact of each change, and a feed of what the AI is doing.",
+  "author": { "name": "MdNoman1538", "url": "https://github.com/MdNoman1538" },
+  "homepage": "https://github.com/MdNoman1538/projectViewer",
+  "repository": "https://github.com/MdNoman1538/projectViewer",
+  "license": "CC-BY-NC-4.0",
+  "keywords": ["architecture", "code map", "visualization", "change impact", "python"]
+}

@@ -52,6 +52,34 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("remove", help="Unsubscribe a repository (by id or path)")
     r.add_argument("project")
     sub.add_parser("list", help="List subscribed repositories")
+    st = sub.add_parser(
+        "setup",
+        help="Get a project ready: subscribe it, optionally add the Claude Code hook, then check everything",
+    )
+    st.add_argument(
+        "root", type=Path, nargs="?", default=Path("."), help="project to set up (default: current folder)"
+    )
+    st.add_argument(
+        "--hook",
+        action="store_true",
+        help="add the AI activity hook to Claude Code's user settings (not needed with the plugin)",
+    )
+    st.add_argument(
+        "--prompts", action="store_true", help="with --hook: also record prompt text (stays on this machine)"
+    )
+    st.add_argument(
+        "--settings", type=Path, help="Claude Code settings file (default: ~/.claude/settings.json)"
+    )
+    d = sub.add_parser(
+        "doctor", help="Check that projectViewer works for a project, and say how to fix what doesn't"
+    )
+    d.add_argument("root", type=Path, nargs="?", default=Path("."))
+    d.add_argument("--port", type=int, default=8765)
+    d.add_argument("--settings", type=Path)
+    u = sub.add_parser(
+        "unhook", help="Remove projectViewer's hook from Claude Code's settings (keeps everything else)"
+    )
+    u.add_argument("--settings", type=Path)
     sub.add_parser(
         "hook", help="Claude Code hook: report AI activity to the viewer (reads the event on stdin)"
     )
@@ -70,6 +98,46 @@ def main(argv: list[str] | None = None) -> int:
         for p in registry.load() if args.cmd == "list" else []:
             print(f"{p['id']:24s} {p['path']}")
         return 0
+
+    if args.cmd in ("setup", "doctor", "unhook"):
+        from projectviewer import onboard
+
+        settings = args.settings or onboard.DEFAULT_SETTINGS
+        if args.cmd == "unhook":
+            n = onboard.uninstall_hook(settings)
+            print(
+                f"removed {n} projectViewer hook command(s) from {settings}"
+                if n
+                else "no projectViewer hook found"
+            )
+            return 0
+        if not args.root.is_dir():
+            ap.error(f"not a directory: {args.root}")
+        if args.cmd == "setup":
+            from projectviewer import registry
+
+            p = registry.add(args.root)
+            print(f"subscribed: {p['id']}  {p['path']}")
+            if args.hook:
+                try:
+                    changes = onboard.install_hook(settings, onboard.hook_command(prompts=args.prompts))
+                except onboard.SettingsError as exc:
+                    print(f"hook not installed: {exc}", file=sys.stderr)
+                    return 1
+                print(
+                    f"hook: {', '.join(changes)} in {settings}"
+                    if changes
+                    else f"hook: already installed in {settings}"
+                )
+        checks = onboard.doctor(args.root, port=getattr(args, "port", 8765), settings=settings)
+        marks = {"ok": "✓", "warn": "!", "fail": "✗"}
+        for c in checks:
+            print(f"  {marks[c.status]} {c.label}" + (f"\n      {c.detail}" if c.detail else ""))
+        if args.cmd == "setup":
+            print(
+                "\nNext: `projectviewer serve --open` (leave it running), then edit code and watch the map change."
+            )
+        return 1 if any(c.status == "fail" for c in checks) else 0
 
     if args.cmd == "serve":
         from projectviewer import registry

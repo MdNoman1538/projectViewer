@@ -1,6 +1,6 @@
 # Project Status
 
-**As of:** 2026-11-21 · **Phase:** 3 (changes) mostly done; 4 (service) partly. Branch `feat/analyzer-fixes`, stacked on #1 and #2.
+**As of:** 2026-11-23 · **Phase:** 3 (changes) mostly done; 4 (service) partly; **agent-ready distribution done** (ADR-0008). **Python projects only.**
 
 ## What exists
 
@@ -15,6 +15,9 @@
 | Projects | `src/projectviewer/registry.py` | Subscribed projects in `~/.config/projectviewer/projects.json` |
 | Tests | `tests/` | 34 Python tests (cartographer + server) on small made-up fixture projects |
 | Server | `src/projectviewer/server.py` | `projectviewer serve <repo>`: world API (gzip, ETag), live version fingerprint, source access limited to the repo's analysed files, static viewer; binds to 127.0.0.1 |
+| Onboarding | `src/projectviewer/onboard.py` | `setup` (subscribe + checklist, optional hook), `doctor` (every requirement with its fix), `unhook`. Settings are merged (backup, atomic write, broken files refused) |
+| Claude Code plugin | `plugin/`, `.claude-plugin/marketplace.json` | Skills `setup` and `use`; the AI activity hook, guarded so it can never block Claude. Installed with `/plugin install projectviewer --marketplace MdNoman1538/projectViewer` |
+| Shipped viewer | `src/projectviewer/web/` | The built viewer inside the Python package: `uv tool install git+…` needs no Node.js. CI fails if it differs from `viewer/` source |
 | Viewer | `viewer/` | React + deck.gl, **one folder level at a time** (ADR-0006): blocks = folders/files/classes/functions, size and height = number of functions, 2.5D city or 2D map, lenses (Architecture, Tests, Data, API), selection with callers/callees and source, search, live updates, open in VS Code, shareable URL state. 13 unit tests for tree/layout/model logic; built in CI. |
 
 ## Accuracy
@@ -55,5 +58,6 @@ Apple M3 (8 cores), Python 3.12, best of N runs.
 | 3 | The warm path re-reads every cache entry (~0.9 s on pandas) | Phase 4: in-memory facts; skip unchanged files by mtime + size (like git's index) |
 | 4 | SQL is detected only in UPPERCASE keywords. SQL inside test fixtures and registered DataFrames show up as tables. | Accepted; certainty is `pattern` |
 | 5 | Imports inside functions are treated as module-wide | Accepted approximation |
-| 6 | Nested functions are not registered (~28 missed calls in our own code); literal-typed values (`x = {}`) count as unresolved; the headline "% linked" metric overstates misses | Next PR (test-first) |
+| 6 | ✅ Fixed in PR #3: nested functions are registered (LOCAL), literal-typed values count as builtin, and "% linked" counts only project-looking calls | Done |
+| 8 | **Python only.** Projects in other languages get live changes and the activity feed, but an almost empty map | Planned: language-neutral analysers behind the world format (ADR-0002) |
 | 7 | Parallel parsing fails when called from stdin/REPL on macOS ("spawn") | Handled: automatic fallback to serial |
